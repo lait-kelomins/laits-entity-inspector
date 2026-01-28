@@ -3,10 +3,10 @@
 ASCII/terminal-styled debugging interface for the Hytale Entity Inspector plugin.
 
 ```
-╔═══════════════════════════════════════════════════════════════╗
-║  ▓█▀▀▀ █▄░█ ▀█▀ █ ▀█▀ █▄█   █ █▄░█ █▀ █▀█ █▀▀ █▀▀ ▀█▀ █▀█ █▀█ ║
-║  ▓█▀▀▀ █░▀█ ░█░ █ ░█░ ░█░   █ █░▀█ ▄█ █▀▀ ██▄ █▄▄ ░█░ █▄█ █▀▄ ║
-╚═══════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════╗
+║  █▀▀ █▄░█ ▀█▀ █ ▀█▀ █▄█   █ █▄░█ █▀ █▀█ █▀▀ █▀▀ ▀█▀ █▀█ █▀█     ║
+║  ██▄ █░▀█ ░█░ █ ░█░ ░█░   █ █░▀█ ▄█ █▀▀ ██▄ █▄▄ ░█░ █▄█ █▀▄     ║
+╚══════════════════════════════════════════════════════════════════╝
 ```
 
 ## Usage
@@ -32,12 +32,3 @@ ASCII/terminal-styled debugging interface for the Hytale Entity Inspector plugin
 | `ESC` | Deselect entity / clear search |
 | `L` | Toggle event log |
 | `/` | Focus search box |
-
-## Aesthetic
-
-Dithered ASCII/terminal style with:
-- Black background (`#0a0a0a`)
-- Green accent (`#00ff00`)
-- Scanline effect
-- Noise/dither overlay
-- Monospace font (IBM VGA)
