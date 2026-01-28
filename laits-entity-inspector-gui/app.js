@@ -750,7 +750,7 @@ class EntityInspector {
 
 // Theme management
 function initTheme() {
-    const savedTheme = localStorage.getItem('inspector-theme') || 'terminal';
+    const savedTheme = localStorage.getItem('inspector-theme') || 'standard';
     setTheme(savedTheme);
 
     const selector = document.getElementById('theme-select');
@@ -767,8 +767,55 @@ function setTheme(theme) {
     localStorage.setItem('inspector-theme', theme);
 }
 
+// Panel resize functionality
+function initResize() {
+    const handle = document.getElementById('resize-handle');
+    const inspector = document.getElementById('inspector-panel');
+    if (!handle || !inspector) return;
+
+    // Load saved width
+    const savedWidth = localStorage.getItem('inspector-width');
+    if (savedWidth) {
+        inspector.style.width = savedWidth + 'px';
+    }
+
+    let isDragging = false;
+    let startX, startWidth;
+
+    handle.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startWidth = inspector.offsetWidth;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        // Calculate new width (dragging left increases inspector width)
+        const delta = startX - e.clientX;
+        const newWidth = Math.max(400, Math.min(startWidth + delta, window.innerWidth * 0.6));
+        inspector.style.width = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // Save width
+        localStorage.setItem('inspector-width', inspector.offsetWidth);
+    });
+}
+
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
+    initResize();
     window.inspector = new EntityInspector();
 });

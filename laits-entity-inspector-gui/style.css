@@ -26,6 +26,10 @@
     --error: #ff5555;
     --info: #66aaff;
 
+    --chip-bg: #2a2a2a;
+    --chip-border: #ffcc00;
+    --chip-text: #ffcc00;
+
     --font-mono: 'Consolas', 'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace;
 
     --scanline-opacity: 0.08;
@@ -56,6 +60,10 @@
     --error: #ef5350;
     --info: #64b5f6;
 
+    --chip-bg: #3d3d3d;
+    --chip-border: #ffd54f;
+    --chip-text: #ffd54f;
+
     --scanline-opacity: 0;
     --noise-opacity: 0;
 }
@@ -65,29 +73,35 @@
    ═══════════════════════════════════════════════════════════════ */
 [data-theme="light"] {
     --black: #ffffff;
-    --dark: #f5f5f5;
-    --darker: #fafafa;
-    --gray-dark: #e8e8e8;
-    --gray: #d0d0d0;
-    --gray-light: #b0b0b0;
-    --text-dim: #808080;
-    --text: #505050;
-    --text-bright: #303030;
-    --text-highlight: #1a1a1a;
+    --dark: #f8f8f8;
+    --darker: #ffffff;
+    --gray-dark: #eeeeee;
+    --gray: #dddddd;
+    --gray-light: #cccccc;
+    --text-dim: #666666;
+    --text: #444444;
+    --text-bright: #333333;
+    --text-highlight: #111111;
     --white: #000000;
 
-    --accent: #0077cc;
-    --accent-dim: #e3f2fd;
-    --accent-bright: #0066aa;
+    --accent: #0066cc;
+    --accent-dim: #e8f4fc;
+    --accent-bright: #004499;
 
-    --warning: #f57c00;
-    --error: #d32f2f;
-    --info: #1976d2;
+    --warning: #cc6600;
+    --error: #cc2222;
+    --info: #0055aa;
+
+    --chip-bg: #fff3e0;
+    --chip-border: #ff9800;
+    --chip-text: #e65100;
 
     --scanline-opacity: 0;
     --noise-opacity: 0;
 }
 
+/* Dither patterns for terminal theme */
+:root {
     --dither-1: url("data:image/svg+xml,%3Csvg width='4' height='4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23ffffff' fill-opacity='0.03'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23ffffff' fill-opacity='0.03'/%3E%3C/svg%3E");
     --dither-2: url("data:image/svg+xml,%3Csvg width='2' height='2' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23ffffff' fill-opacity='0.05'/%3E%3C/svg%3E");
 }
@@ -265,13 +279,30 @@ body {
 
 .entity-list-panel {
     flex: 1;
-    min-width: 500px;
+    min-width: 300px;
 }
 
 .inspector-panel {
-    width: 600px;
-    min-width: 600px;
+    width: var(--inspector-width, 700px);
+    min-width: 400px;
+    max-width: 60vw;
     flex-shrink: 0;
+}
+
+/* Resize handle between panels */
+.resize-handle {
+    width: 6px;
+    cursor: col-resize;
+    background: var(--gray-dark);
+    border-left: 1px solid var(--gray);
+    border-right: 1px solid var(--gray);
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+    background: var(--accent);
 }
 
 .panel-header {
@@ -497,15 +528,15 @@ body {
 .component-chip {
     flex-shrink: 0;
     padding: 3px 8px;
-    background: var(--gray);
-    border: 1px solid var(--warning);
-    color: var(--warning);
-    font-size: 10px;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    color: var(--chip-text);
+    font-size: 11px;
     cursor: default;
 }
 
 .component-chip:hover {
-    background: var(--gray-light);
+    filter: brightness(1.1);
 }
 
 /* Component Filter */
