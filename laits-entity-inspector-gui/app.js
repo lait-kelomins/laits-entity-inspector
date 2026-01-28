@@ -748,7 +748,27 @@ class EntityInspector {
     }
 }
 
+// Theme management
+function initTheme() {
+    const savedTheme = localStorage.getItem('inspector-theme') || 'terminal';
+    setTheme(savedTheme);
+
+    const selector = document.getElementById('theme-select');
+    if (selector) {
+        selector.value = savedTheme;
+        selector.addEventListener('change', (e) => {
+            setTheme(e.target.value);
+        });
+    }
+}
+
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('inspector-theme', theme);
+}
+
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     window.inspector = new EntityInspector();
 });

@@ -2,33 +2,91 @@
    ENTITY INSPECTOR - ASCII/TERMINAL AESTHETIC
    ═══════════════════════════════════════════════════════════════ */
 
-@font-face {
-    font-family: 'IBM VGA';
-    src: url('https://fonts.cdnfonts.com/s/35058/WebPlus_IBM_VGA_8x16.woff') format('woff');
-}
-
-:root {
+/* ═══════════════════════════════════════════════════════════════
+   THEME: Terminal (default)
+   ═══════════════════════════════════════════════════════════════ */
+:root, [data-theme="terminal"] {
     --black: #0a0a0a;
     --dark: #111111;
     --darker: #080808;
     --gray-dark: #1a1a1a;
     --gray: #2a2a2a;
     --gray-light: #3a3a3a;
-    --text-dim: #666666;
-    --text: #888888;
-    --text-bright: #aaaaaa;
-    --text-highlight: #cccccc;
-    --white: #eeeeee;
+    --text-dim: #777777;
+    --text: #999999;
+    --text-bright: #bbbbbb;
+    --text-highlight: #dddddd;
+    --white: #f0f0f0;
 
     --accent: #00ff00;
-    --accent-dim: #004400;
-    --accent-bright: #44ff44;
+    --accent-dim: #003300;
+    --accent-bright: #66ff66;
 
-    --warning: #ffaa00;
-    --error: #ff4444;
-    --info: #4488ff;
+    --warning: #ffcc00;
+    --error: #ff5555;
+    --info: #66aaff;
 
-    --font-mono: 'IBM VGA', 'Courier New', 'Consolas', monospace;
+    --font-mono: 'Consolas', 'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace;
+
+    --scanline-opacity: 0.08;
+    --noise-opacity: 0.15;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THEME: Standard (clean, high readability)
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="standard"] {
+    --black: #1e1e1e;
+    --dark: #252526;
+    --darker: #1e1e1e;
+    --gray-dark: #2d2d30;
+    --gray: #3c3c3c;
+    --gray-light: #4d4d4d;
+    --text-dim: #808080;
+    --text: #b0b0b0;
+    --text-bright: #d4d4d4;
+    --text-highlight: #e8e8e8;
+    --white: #ffffff;
+
+    --accent: #4fc3f7;
+    --accent-dim: #1a3a4a;
+    --accent-bright: #81d4fa;
+
+    --warning: #ffd54f;
+    --error: #ef5350;
+    --info: #64b5f6;
+
+    --scanline-opacity: 0;
+    --noise-opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THEME: Light
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="light"] {
+    --black: #ffffff;
+    --dark: #f5f5f5;
+    --darker: #fafafa;
+    --gray-dark: #e8e8e8;
+    --gray: #d0d0d0;
+    --gray-light: #b0b0b0;
+    --text-dim: #808080;
+    --text: #505050;
+    --text-bright: #303030;
+    --text-highlight: #1a1a1a;
+    --white: #000000;
+
+    --accent: #0077cc;
+    --accent-dim: #e3f2fd;
+    --accent-bright: #0066aa;
+
+    --warning: #f57c00;
+    --error: #d32f2f;
+    --info: #1976d2;
+
+    --scanline-opacity: 0;
+    --noise-opacity: 0;
+}
 
     --dither-1: url("data:image/svg+xml,%3Csvg width='4' height='4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23ffffff' fill-opacity='0.03'/%3E%3Crect x='2' y='2' width='1' height='1' fill='%23ffffff' fill-opacity='0.03'/%3E%3C/svg%3E");
     --dither-2: url("data:image/svg+xml,%3Csvg width='2' height='2' xmlns='http://www.w3.org/2000/svg'%3E%3Crect x='0' y='0' width='1' height='1' fill='%23ffffff' fill-opacity='0.05'/%3E%3C/svg%3E");
@@ -50,10 +108,10 @@ body {
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.5;
 }
 
-/* Scanline effect */
+/* Scanline effect - controlled by theme */
 .scanlines {
     position: fixed;
     top: 0;
@@ -62,16 +120,17 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 1000;
+    opacity: var(--scanline-opacity, 0.08);
     background: repeating-linear-gradient(
         0deg,
         transparent,
-        transparent 2px,
-        rgba(0, 0, 0, 0.15) 2px,
-        rgba(0, 0, 0, 0.15) 4px
+        transparent 3px,
+        rgba(0, 0, 0, 1) 3px,
+        rgba(0, 0, 0, 1) 6px
     );
 }
 
-/* Noise overlay */
+/* Noise overlay - controlled by theme */
 .noise {
     position: fixed;
     top: 0;
@@ -80,7 +139,7 @@ body {
     height: 100%;
     pointer-events: none;
     z-index: 999;
-    opacity: 0.4;
+    opacity: var(--noise-opacity, 0.15);
     background-image: var(--dither-1);
 }
 
@@ -111,11 +170,18 @@ body {
     flex-shrink: 0;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     padding: 8px 12px;
     background: var(--darker);
     border: 1px solid var(--gray);
     color: var(--text-bright);
     font-size: 12px;
+}
+
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -274,7 +340,7 @@ body {
     background: var(--gray-dark);
     border-bottom: 1px solid var(--gray);
     color: var(--text-bright);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: bold;
     text-transform: uppercase;
 }
@@ -327,20 +393,22 @@ body {
 
 .entity-row .col-id {
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: 13px;
 }
 
 .entity-row .col-type {
     color: var(--info);
+    font-size: 13px;
 }
 
 .entity-row .col-model {
     color: var(--warning);
+    font-size: 13px;
 }
 
 .entity-row .col-pos {
     color: var(--text);
-    font-size: 12px;
+    font-size: 13px;
 }
 
 .entity-row.spawned {
@@ -556,8 +624,8 @@ body {
 .prop-row {
     display: flex;
     gap: 8px;
-    padding: 2px 0;
-    font-size: 12px;
+    padding: 3px 0;
+    font-size: 13px;
 }
 
 .prop-row .prop-key {
@@ -595,6 +663,37 @@ body {
     color: var(--white);
     font-size: 11px;
     font-weight: bold;
+}
+
+/* Theme selector */
+.theme-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theme-selector label {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.theme-selector select {
+    background: var(--gray-dark);
+    border: 1px solid var(--gray-light);
+    color: var(--text-highlight);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 3px 8px;
+    cursor: pointer;
+    outline: none;
+}
+
+.theme-selector select:hover {
+    border-color: var(--accent);
+}
+
+.theme-selector select:focus {
+    border-color: var(--accent);
 }
 
 /* ═══════════════════════════════════════════════════════════════
