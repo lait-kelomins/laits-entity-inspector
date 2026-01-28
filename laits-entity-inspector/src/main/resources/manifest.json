@@ -1,0 +1,17 @@
+{
+    "Group": "Lait",
+    "Name": "EntityInspector",
+    "Version": "1.0.0",
+    "Description": "Live entity and component data inspector with WebSocket transport",
+    "Authors": [
+        {
+            "Name": "Lait",
+            "Email": "lait.kelomins@gmail.com",
+            "Url": ""
+        }
+    ],
+    "Website": "",
+    "Main": "com.laits.inspector.LaitsInspectorPlugin",
+    "ServerVersion": "*",
+    "IncludesAssetPack": false
+}

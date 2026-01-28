@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entity Inspector</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="noise"></div>
+
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <pre class="logo">
+╔═══════════════════════════════════════════════════════════════╗
+║  ▓█▀▀▀ █▄░█ ▀█▀ █ ▀█▀ █▄█   █ █▄░█ █▀ █▀█ █▀▀ █▀▀ ▀█▀ █▀█ █▀█ ║
+║  ▓█▀▀▀ █░▀█ ░█░ █ ░█░ ░█░   █ █░▀█ ▄█ █▀▀ ██▄ █▄▄ ░█░ █▄█ █▀▄ ║
+╚═══════════════════════════════════════════════════════════════╝</pre>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="label">STATUS:</span>
+                    <span id="connection-status" class="status disconnected">● DISCONNECTED</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">ENTITIES:</span>
+                    <span id="entity-count" class="value">0</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">WORLD:</span>
+                    <span id="world-name" class="value">---</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">UPTIME:</span>
+                    <span id="uptime" class="value">00:00:00</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Entity List Panel -->
+            <section class="panel entity-list-panel">
+                <div class="panel-header">
+                    <span class="panel-title">┌─[ ENTITY LIST ]─────────────────────────┐</span>
+                </div>
+                <div class="search-box">
+                    <span class="prompt">&gt;</span>
+                    <input type="text" id="search-input" placeholder="FILTER: type or model..." autocomplete="off">
+                    <span class="cursor">█</span>
+                </div>
+                <div class="entity-list-header">
+                    <span class="col-id">ID</span>
+                    <span class="col-type">TYPE</span>
+                    <span class="col-model">MODEL</span>
+                    <span class="col-pos">POSITION</span>
+                </div>
+                <div id="entity-list" class="entity-list">
+                    <div class="empty-state">
+                        <pre>
+    ░░░░░░░░░░░░░░░░░░░░░
+    ░  NO ENTITIES YET  ░
+    ░   WAITING FOR     ░
+    ░    CONNECTION     ░
+    ░░░░░░░░░░░░░░░░░░░░░
+                        </pre>
+                    </div>
+                </div>
+                <div class="panel-footer">└─────────────────────────────────────────┘</div>
+            </section>
+
+            <!-- Inspector Panel -->
+            <section class="panel inspector-panel">
+                <div class="panel-header">
+                    <span class="panel-title">┌─[ COMPONENT INSPECTOR ]─────────────────┐</span>
+                </div>
+                <div id="inspector-content" class="inspector-content">
+                    <div class="empty-state">
+                        <pre>
+    ╔════════════════════╗
+    ║  SELECT AN ENTITY  ║
+    ║   TO INSPECT ITS   ║
+    ║    COMPONENTS      ║
+    ╚════════════════════╝
+                        </pre>
+                    </div>
+                </div>
+                <div class="panel-footer">└─────────────────────────────────────────┘</div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="key">[R]</span> Reconnect
+                <span class="key">[C]</span> Clear
+                <span class="key">[ESC]</span> Deselect
+            </div>
+            <div class="footer-right">
+                <span id="last-update">Last update: ---</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Event Log (hidden by default, toggle with L) -->
+    <div id="event-log" class="event-log hidden">
+        <div class="log-header">┌─[ EVENT LOG ]─┐</div>
+        <div id="log-content" class="log-content"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
