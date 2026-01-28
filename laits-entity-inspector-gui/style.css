@@ -283,7 +283,7 @@ body {
 }
 
 .inspector-panel {
-    width: var(--inspector-width, 700px);
+    width: var(--inspector-width, 60vw);
     min-width: 400px;
     max-width: 60vw;
     flex-shrink: 0;
