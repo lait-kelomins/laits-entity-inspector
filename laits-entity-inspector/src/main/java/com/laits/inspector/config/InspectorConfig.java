@@ -24,6 +24,7 @@ public class InspectorConfig {
     private boolean includeNPCs = true;
     private boolean includePlayers = true;
     private boolean includeItems = false;
+    private int maxCachedEntities = 5000;
 
     // WebSocket transport settings
     private WebSocketConfig websocket = new WebSocketConfig();
@@ -34,7 +35,7 @@ public class InspectorConfig {
     public static class WebSocketConfig {
         private boolean enabled = true;
         private int port = 8765;
-        private String bindAddress = "0.0.0.0";
+        private String bindAddress = "127.0.0.1";
         private int maxClients = 10;
 
         public boolean isEnabled() {
@@ -122,6 +123,14 @@ public class InspectorConfig {
         this.includeItems = includeItems;
     }
 
+    public int getMaxCachedEntities() {
+        return maxCachedEntities;
+    }
+
+    public void setMaxCachedEntities(int maxCachedEntities) {
+        this.maxCachedEntities = Math.max(100, maxCachedEntities);
+    }
+
     public WebSocketConfig getWebsocket() {
         return websocket;
     }
@@ -178,6 +187,7 @@ public class InspectorConfig {
             this.includeNPCs = reloaded.includeNPCs;
             this.includePlayers = reloaded.includePlayers;
             this.includeItems = reloaded.includeItems;
+            this.maxCachedEntities = reloaded.maxCachedEntities;
             this.websocket = reloaded.websocket;
             LOGGER.atInfo().log("Reloaded inspector config");
         }

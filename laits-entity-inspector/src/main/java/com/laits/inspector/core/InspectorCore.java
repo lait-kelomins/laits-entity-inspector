@@ -11,10 +11,11 @@ import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -32,11 +33,14 @@ public class InspectorCore implements DataTransportListener {
     private final AtomicBoolean enabled = new AtomicBoolean(true);
     private final AtomicBoolean paused = new AtomicBoolean(false);
 
-    // Cache for entity lookups by ID
-    private final Map<Long, EntitySnapshot> entityCache = new ConcurrentHashMap<>();
+    // Cache for entity lookups by ID (LinkedHashMap preserves insertion order for LRU eviction)
+    private final Map<Long, EntitySnapshot> entityCache = Collections.synchronizedMap(new LinkedHashMap<>());
 
     // Previous snapshots for change detection
     private final Map<Long, EntitySnapshot> previousSnapshots = new ConcurrentHashMap<>();
+
+    // Lock object for cache operations requiring atomicity
+    private final Object cacheLock = new Object();
 
     // Reference to current world for snapshot requests
     private volatile World currentWorld;
@@ -160,7 +164,7 @@ public class InspectorCore implements DataTransportListener {
             return;
         }
 
-        entityCache.put(snapshot.getEntityId(), snapshot);
+        putWithEviction(snapshot.getEntityId(), snapshot);
         broadcast(t -> t.sendEntitySpawn(snapshot));
     }
 
@@ -190,10 +194,29 @@ public class InspectorCore implements DataTransportListener {
         // Detect which components changed
         List<String> changedComponents = detectChangedComponents(snapshot);
 
-        entityCache.put(snapshot.getEntityId(), snapshot);
+        putWithEviction(snapshot.getEntityId(), snapshot);
         previousSnapshots.put(snapshot.getEntityId(), snapshot);
 
         broadcast(t -> t.sendEntityUpdate(snapshot, changedComponents));
+    }
+
+    /**
+     * Put an entity into the cache, evicting oldest entries if limit exceeded.
+     */
+    private void putWithEviction(long entityId, EntitySnapshot snapshot) {
+        synchronized (cacheLock) {
+            entityCache.put(entityId, snapshot);
+
+            int maxSize = config.getMaxCachedEntities();
+            while (entityCache.size() > maxSize) {
+                Iterator<Long> it = entityCache.keySet().iterator();
+                if (it.hasNext()) {
+                    Long oldestId = it.next();
+                    it.remove();
+                    previousSnapshots.remove(oldestId);
+                }
+            }
+        }
     }
 
     /**
