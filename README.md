@@ -1,4 +1,4 @@
-# Laits Entity Inspector
+# Lait's Entity Inspector
 
 > **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
 
