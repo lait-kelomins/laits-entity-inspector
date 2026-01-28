@@ -51,7 +51,8 @@ class EntityInspector {
             'ChunkTracker',
             'MovementAudioComponent',
             'ItemComponent',
-            'ItemPhysicsComponent'
+            'ItemPhysicsComponent',
+            'ActiveAnimationComponent'
         ]);
 
         // DOM elements
@@ -274,10 +275,8 @@ class EntityInspector {
                 // Also update TransformComponent if it exists (keeps inspector in sync)
                 if (entity.components) {
                     const transform = entity.components.TransformComponent;
-                    if (transform && transform.data) {
-                        transform.data.position = [pos.x, pos.y, pos.z];
-                    } else if (transform) {
-                        transform.position = [pos.x, pos.y, pos.z];
+                    if (transform && transform.fields) {
+                        transform.fields.position = [pos.x, pos.y, pos.z];
                     }
                 }
 
