@@ -3,6 +3,20 @@
  * ASCII/Terminal aesthetic debugging tool for Hytale
  */
 
+/**
+ * Escape HTML to prevent XSS attacks from malicious entity/component data.
+ * Malicious plugins could set entity names to "<script>..." or similar.
+ */
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 class EntityInspector {
     constructor() {
         // State
@@ -179,7 +193,7 @@ class EntityInspector {
     handleSpawn(entity) {
         entity = this.normalizeEntityPosition(entity);
         this.entities.set(entity.entityId, entity);
-        this.log(`SPAWN: ${entity.modelAssetId || entity.entityType || 'Entity'} #${entity.entityId}`, 'spawn');
+        this.log(`SPAWN: ${escapeHtml(entity.modelAssetId || entity.entityType || 'Entity')} #${entity.entityId}`, 'spawn');
         this.renderEntityList();
         this.updateEntityCount();
 
@@ -195,7 +209,7 @@ class EntityInspector {
         const entity = this.entities.get(entityId);
         const name = entity ? (entity.modelAssetId || entity.entityType || 'Entity') : 'Entity';
 
-        this.log(`DESPAWN: ${name} #${entityId}`, 'despawn');
+        this.log(`DESPAWN: ${escapeHtml(name)} #${entityId}`, 'despawn');
 
         // Animate removal
         const row = document.querySelector(`[data-entity-id="${entityId}"]`);
@@ -304,8 +318,8 @@ class EntityInspector {
                 <div class="entity-row ${isSelected ? 'selected' : ''}"
                      data-entity-id="${entity.entityId}">
                     <span class="col-id">#${entity.entityId}</span>
-                    <span class="col-type">${entity.entityType || '---'}</span>
-                    <span class="col-model">${entity.modelAssetId || '---'}</span>
+                    <span class="col-type">${escapeHtml(entity.entityType) || '---'}</span>
+                    <span class="col-model">${escapeHtml(entity.modelAssetId) || '---'}</span>
                     <span class="col-pos">${this.formatPosition(entity.position)}</span>
                 </div>
             `;
@@ -341,7 +355,7 @@ class EntityInspector {
 
         let html = `
             <div class="inspector-entity-header">
-                <h2>▓ ${entity.modelAssetId || entity.entityType || 'Entity'}</h2>
+                <h2>▓ ${escapeHtml(entity.modelAssetId || entity.entityType || 'Entity')}</h2>
                 <div class="inspector-meta">
                     <div class="inspector-meta-row">
                         <span class="label">ID:</span>
@@ -349,11 +363,11 @@ class EntityInspector {
                     </div>
                     <div class="inspector-meta-row">
                         <span class="label">UUID:</span>
-                        <span class="value">${entity.uuid || '---'}</span>
+                        <span class="value">${escapeHtml(entity.uuid) || '---'}</span>
                     </div>
                     <div class="inspector-meta-row">
                         <span class="label">Type:</span>
-                        <span class="value">${entity.entityType || '---'}</span>
+                        <span class="value">${escapeHtml(entity.entityType) || '---'}</span>
                     </div>
                     <div class="inspector-meta-row">
                         <span class="label">Position:</span>
@@ -419,7 +433,7 @@ class EntityInspector {
             <div class="component-section">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
-                    <span>${name}</span>
+                    <span>${escapeHtml(name)}</span>
                 </div>
                 <div class="component-body">
                     ${propsHtml || '<span style="color: var(--text-dim)">Empty component</span>'}
@@ -430,13 +444,14 @@ class EntityInspector {
 
     renderProperty(key, value, depth = 0) {
         const indentStyle = `style="padding-left: ${depth * 16}px"`;
+        const safeKey = escapeHtml(key);
 
         if (value === null || value === undefined) {
-            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value">null</span></div>`;
+            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value">null</span></div>`;
         }
 
         if (typeof value === 'object' && !Array.isArray(value)) {
-            let html = `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value">{</span></div>`;
+            let html = `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value">{</span></div>`;
             for (const [k, v] of Object.entries(value)) {
                 html += this.renderProperty(k, v, depth + 1);
             }
@@ -445,8 +460,8 @@ class EntityInspector {
         }
 
         if (Array.isArray(value)) {
-            const formatted = value.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ');
-            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value number">[${formatted}]</span></div>`;
+            const formatted = escapeHtml(value.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', '));
+            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value number">[${formatted}]</span></div>`;
         }
 
         let valueClass = 'prop-value';
@@ -457,13 +472,15 @@ class EntityInspector {
             displayValue = Number.isInteger(value) ? value : value.toFixed(4);
         } else if (typeof value === 'string') {
             valueClass += ' string';
-            displayValue = `"${value}"`;
+            displayValue = `"${escapeHtml(value)}"`;
         } else if (typeof value === 'boolean') {
             valueClass += ' boolean';
             displayValue = value ? 'true' : 'false';
+        } else {
+            displayValue = escapeHtml(displayValue);
         }
 
-        return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="${valueClass}">${displayValue}</span></div>`;
+        return `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="${valueClass}">${displayValue}</span></div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -535,7 +552,7 @@ class EntityInspector {
             .slice(0, this.maxGlobalChips);
 
         this.componentChipsEl.innerHTML = uniqueChanges
-            .map(c => `<span class="component-chip" title="${c.entityName} #${c.entityId}">${c.entityName}.${c.componentName}</span>`)
+            .map(c => `<span class="component-chip" title="${escapeHtml(c.entityName)} #${c.entityId}">${escapeHtml(c.entityName)}.${escapeHtml(c.componentName)}</span>`)
             .join('');
     }
 
