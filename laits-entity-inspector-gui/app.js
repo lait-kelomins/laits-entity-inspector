@@ -193,7 +193,7 @@ class EntityInspector {
     handleSpawn(entity) {
         entity = this.normalizeEntityPosition(entity);
         this.entities.set(entity.entityId, entity);
-        this.log(`SPAWN: ${escapeHtml(entity.modelAssetId || entity.entityType || 'Entity')} #${entity.entityId}`, 'spawn');
+        this.log(`SPAWN: ${entity.modelAssetId || entity.entityType || 'Entity'} #${entity.entityId}`, 'spawn');
         this.renderEntityList();
         this.updateEntityCount();
 
@@ -209,7 +209,7 @@ class EntityInspector {
         const entity = this.entities.get(entityId);
         const name = entity ? (entity.modelAssetId || entity.entityType || 'Entity') : 'Entity';
 
-        this.log(`DESPAWN: ${escapeHtml(name)} #${entityId}`, 'despawn');
+        this.log(`DESPAWN: ${name} #${entityId}`, 'despawn');
 
         // Animate removal
         const row = document.querySelector(`[data-entity-id="${entityId}"]`);
@@ -270,6 +270,16 @@ class EntityInspector {
             const entity = this.entities.get(pos.entityId);
             if (entity) {
                 entity.position = { x: pos.x, y: pos.y, z: pos.z };
+
+                // Also update TransformComponent if it exists (keeps inspector in sync)
+                if (entity.components) {
+                    const transform = entity.components.TransformComponent;
+                    if (transform && transform.data) {
+                        transform.data.position = [pos.x, pos.y, pos.z];
+                    } else if (transform) {
+                        transform.position = [pos.x, pos.y, pos.z];
+                    }
+                }
 
                 // Update display
                 const row = document.querySelector(`[data-entity-id="${pos.entityId}"]`);
@@ -653,7 +663,8 @@ class EntityInspector {
         const time = new Date().toTimeString().split(' ')[0];
         const entry = document.createElement('div');
         entry.className = `log-entry ${type}`;
-        entry.innerHTML = `<span class="time">${time}</span>${message}`;
+        // Note: message should already be escaped by caller, but escape again for safety
+        entry.innerHTML = `<span class="time">${time}</span>${escapeHtml(message)}`;
         this.logContent.insertBefore(entry, this.logContent.firstChild);
 
         // Keep only last 100 entries
