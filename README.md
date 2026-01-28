@@ -1,5 +1,7 @@
 # Laits Entity Inspector
 
+> **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
+
 Real-time entity debugging tools for Hytale modding.
 
 ## Components
@@ -38,8 +40,12 @@ ASCII/terminal-styled web interface for viewing entity data.
    cd laits-entity-inspector
    gradle build -x test
    ```
+   Output: `build/libs/laits-entity-inspector-<version>.jar`
 
-2. Deploy JAR to: `%APPDATA%/Hytale/userdata/saves/<world>/mods/`
+2. Copy the JAR to your world's mods folder:
+   ```
+   %APPDATA%/Hytale/UserData/Saves/<world>/Mods/
+   ```
 
 3. Start the Hytale server
 
