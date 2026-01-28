@@ -3,6 +3,7 @@ package com.laits.inspector.core;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.laits.inspector.config.InspectorConfig;
+import com.laits.inspector.data.ComponentData;
 import com.laits.inspector.data.EntitySnapshot;
 import com.laits.inspector.data.PositionUpdate;
 import com.laits.inspector.data.WorldSnapshot;
@@ -10,8 +11,10 @@ import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -31,6 +34,9 @@ public class InspectorCore implements DataTransportListener {
 
     // Cache for entity lookups by ID
     private final Map<Long, EntitySnapshot> entityCache = new ConcurrentHashMap<>();
+
+    // Previous snapshots for change detection
+    private final Map<Long, EntitySnapshot> previousSnapshots = new ConcurrentHashMap<>();
 
     // Reference to current world for snapshot requests
     private volatile World currentWorld;
@@ -82,6 +88,7 @@ public class InspectorCore implements DataTransportListener {
             }
         }
         entityCache.clear();
+        previousSnapshots.clear();
     }
 
     /**
@@ -90,6 +97,13 @@ public class InspectorCore implements DataTransportListener {
      */
     public void setCurrentWorld(World world) {
         this.currentWorld = world;
+    }
+
+    /**
+     * Get the current world.
+     */
+    public World getCurrentWorld() {
+        return currentWorld;
     }
 
     /**
@@ -160,6 +174,7 @@ public class InspectorCore implements DataTransportListener {
         }
 
         entityCache.remove(entityId);
+        previousSnapshots.remove(entityId);
         broadcast(t -> t.sendEntityDespawn(entityId, uuid));
     }
 
@@ -172,8 +187,36 @@ public class InspectorCore implements DataTransportListener {
             return;
         }
 
+        // Detect which components changed
+        List<String> changedComponents = detectChangedComponents(snapshot);
+
         entityCache.put(snapshot.getEntityId(), snapshot);
-        broadcast(t -> t.sendEntityUpdate(snapshot));
+        previousSnapshots.put(snapshot.getEntityId(), snapshot);
+
+        broadcast(t -> t.sendEntityUpdate(snapshot, changedComponents));
+    }
+
+    /**
+     * Detect which components have changed compared to the previous snapshot.
+     */
+    private List<String> detectChangedComponents(EntitySnapshot current) {
+        List<String> changed = new ArrayList<>();
+        EntitySnapshot previous = previousSnapshots.get(current.getEntityId());
+
+        if (previous == null) {
+            // All components are new
+            changed.addAll(current.getComponents().keySet());
+        } else {
+            // Find new or changed components
+            for (var entry : current.getComponents().entrySet()) {
+                ComponentData prevData = previous.getComponent(entry.getKey());
+                if (prevData == null || !prevData.equals(entry.getValue())) {
+                    changed.add(entry.getKey());
+                }
+            }
+        }
+
+        return changed;
     }
 
     /**

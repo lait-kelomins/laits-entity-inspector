@@ -14,10 +14,14 @@
         <!-- Header -->
         <header class="header">
             <pre class="logo">
-╔═══════════════════════════════════════════════════════════════╗
-║  ▓█▀▀▀ █▄░█ ▀█▀ █ ▀█▀ █▄█   █ █▄░█ █▀ █▀█ █▀▀ █▀▀ ▀█▀ █▀█ █▀█ ║
-║  ▓█▀▀▀ █░▀█ ░█░ █ ░█░ ░█░   █ █░▀█ ▄█ █▀▀ ██▄ █▄▄ ░█░ █▄█ █▀▄ ║
-╚═══════════════════════════════════════════════════════════════╝</pre>
+╔═════════════════════════════════════════════════════════════════════╗
+║  ███████╗███╗   ██╗████████╗██╗████████╗██╗   ██╗                   ║
+║  ██╔════╝████╗  ██║╚══██╔══╝██║╚══██╔══╝╚██╗ ██╔╝                   ║
+║  █████╗  ██╔██╗ ██║   ██║   ██║   ██║    ╚████╔╝                    ║
+║  ██╔══╝  ██║╚██╗██║   ██║   ██║   ██║     ╚██╔╝                     ║
+║  ███████╗██║ ╚████║   ██║   ██║   ██║      ██║                      ║
+║  ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝   ╚═╝      ╚═╝   I N S P E C T O R  ║
+╚═════════════════════════════════════════════════════════════════════╝</pre>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="label">STATUS:</span>
@@ -37,6 +41,14 @@
                 </div>
             </div>
         </header>
+
+        <!-- Global Changes Header -->
+        <div id="changed-components-header" class="changed-components-header hidden">
+            <div class="header-label">LIVE CHANGES</div>
+            <div class="component-chips-container">
+                <div class="component-chips" id="component-chips"></div>
+            </div>
+        </div>
 
         <!-- Main Content -->
         <main class="main">
@@ -74,6 +86,10 @@
             <section class="panel inspector-panel">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ COMPONENT INSPECTOR ]─────────────────┐</span>
+                </div>
+                <div class="component-filter-box">
+                    <span class="prompt">⚙</span>
+                    <input type="text" id="component-filter" placeholder="FILTER: interaction, action, npc..." autocomplete="off">
                 </div>
                 <div id="inspector-content" class="inspector-content">
                     <div class="empty-state">

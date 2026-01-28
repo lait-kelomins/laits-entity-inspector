@@ -14,11 +14,11 @@
     --gray-dark: #1a1a1a;
     --gray: #2a2a2a;
     --gray-light: #3a3a3a;
-    --text-dim: #444444;
-    --text: #666666;
-    --text-bright: #888888;
-    --text-highlight: #aaaaaa;
-    --white: #cccccc;
+    --text-dim: #666666;
+    --text: #888888;
+    --text-bright: #aaaaaa;
+    --text-highlight: #cccccc;
+    --white: #eeeeee;
 
     --accent: #00ff00;
     --accent-dim: #004400;
@@ -114,7 +114,7 @@ body {
     padding: 8px 12px;
     background: var(--darker);
     border: 1px solid var(--gray);
-    color: var(--text-dim);
+    color: var(--text-bright);
     font-size: 12px;
 }
 
@@ -123,12 +123,13 @@ body {
    ═══════════════════════════════════════════════════════════════ */
 
 .logo {
-    color: var(--accent);
+    color: var(--accent-bright);
     font-size: 11px;
     line-height: 1.2;
     text-align: center;
-    text-shadow: 0 0 10px var(--accent-dim);
+    text-shadow: 0 0 8px var(--accent);
     margin-bottom: 8px;
+    font-weight: bold;
 }
 
 .status-bar {
@@ -147,7 +148,8 @@ body {
 }
 
 .status-item .label {
-    color: var(--text-dim);
+    color: var(--text-bright);
+    font-weight: bold;
 }
 
 .status-item .value {
@@ -201,7 +203,8 @@ body {
 }
 
 .inspector-panel {
-    width: 400px;
+    width: 600px;
+    min-width: 600px;
     flex-shrink: 0;
 }
 
@@ -212,7 +215,7 @@ body {
 }
 
 .panel-title {
-    color: var(--text-bright);
+    color: var(--white);
     font-size: 12px;
 }
 
@@ -270,8 +273,9 @@ body {
     padding: 6px 12px;
     background: var(--gray-dark);
     border-bottom: 1px solid var(--gray);
-    color: var(--text-dim);
+    color: var(--text-bright);
     font-size: 11px;
+    font-weight: bold;
     text-transform: uppercase;
 }
 
@@ -382,6 +386,88 @@ body {
 /* ═══════════════════════════════════════════════════════════════
    INSPECTOR PANEL
    ═══════════════════════════════════════════════════════════════ */
+
+/* Global Changes Header */
+.changed-components-header {
+    padding: 6px 12px;
+    background: var(--darker);
+    border: 1px solid var(--gray);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.changed-components-header.hidden {
+    display: none;
+}
+
+.header-label {
+    color: var(--text-bright);
+    font-size: 10px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.component-chips-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+.component-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 2px 0;
+}
+
+.component-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.component-chip {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    background: var(--gray);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 10px;
+    cursor: default;
+}
+
+.component-chip:hover {
+    background: var(--gray-light);
+}
+
+/* Component Filter */
+.component-filter-box {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    background: var(--black);
+    border-bottom: 1px solid var(--gray);
+}
+
+.component-filter-box .prompt {
+    color: var(--text-dim);
+    margin-right: 8px;
+    font-size: 12px;
+}
+
+.component-filter-box input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--white);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+}
+
+.component-filter-box input::placeholder {
+    color: var(--text-dim);
+}
 
 .inspector-content {
     flex: 1;
@@ -505,9 +591,10 @@ body {
     padding: 2px 6px;
     margin-right: 4px;
     background: var(--gray-dark);
-    border: 1px solid var(--gray);
-    color: var(--text-bright);
+    border: 1px solid var(--gray-light);
+    color: var(--white);
     font-size: 11px;
+    font-weight: bold;
 }
 
 /* ═══════════════════════════════════════════════════════════════

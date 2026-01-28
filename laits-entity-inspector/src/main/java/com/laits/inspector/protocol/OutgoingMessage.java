@@ -75,6 +75,13 @@ public class OutgoingMessage {
     }
 
     /**
+     * Create ENTITY_UPDATE message with changed components list.
+     */
+    public static OutgoingMessage entityUpdate(EntitySnapshot entity, List<String> changedComponents) {
+        return new OutgoingMessage(MessageType.ENTITY_UPDATE, new EntityUpdateData(entity, changedComponents));
+    }
+
+    /**
      * Create POSITION_BATCH message for position-only updates.
      */
     public static OutgoingMessage positionBatch(List<PositionUpdate> positions) {
@@ -112,6 +119,39 @@ public class OutgoingMessage {
 
         ErrorData(String message) {
             this.message = message;
+        }
+    }
+
+    /**
+     * Wrapper for entity update with changed components list.
+     */
+    private static class EntityUpdateData {
+        private final long entityId;
+        private final String uuid;
+        private final String modelAssetId;
+        private final String entityType;
+        private final double x;
+        private final double y;
+        private final double z;
+        private final float yaw;
+        private final float pitch;
+        private final Object components;
+        private final long timestamp;
+        private final List<String> changedComponents;
+
+        EntityUpdateData(EntitySnapshot entity, List<String> changedComponents) {
+            this.entityId = entity.getEntityId();
+            this.uuid = entity.getUuid();
+            this.modelAssetId = entity.getModelAssetId();
+            this.entityType = entity.getEntityType();
+            this.x = entity.getX();
+            this.y = entity.getY();
+            this.z = entity.getZ();
+            this.yaw = entity.getYaw();
+            this.pitch = entity.getPitch();
+            this.components = entity.getComponents();
+            this.timestamp = entity.getTimestamp();
+            this.changedComponents = changedComponents;
         }
     }
 }

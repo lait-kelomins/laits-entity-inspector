@@ -14,6 +14,10 @@ import com.laits.inspector.transport.websocket.WebSocketTransport;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Path;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Main plugin class for the Entity Inspector.
@@ -21,13 +25,15 @@ import java.nio.file.Path;
  */
 public class LaitsInspectorPlugin extends JavaPlugin {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final String VERSION = "1.0.0";
+    private static final String VERSION = "0.0.1";
 
     private static LaitsInspectorPlugin INSTANCE;
 
     private InspectorConfig config;
     private InspectorCore core;
     private EntityUpdateSystem updateSystem;
+    private ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> tickTask;
 
     public LaitsInspectorPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -77,6 +83,9 @@ public class LaitsInspectorPlugin extends JavaPlugin {
         // Start transports
         core.start();
 
+        // Start tick handler for position updates
+        startTickHandler();
+
         // Try to get initial world
         setupWorld();
 
@@ -86,10 +95,36 @@ public class LaitsInspectorPlugin extends JavaPlugin {
 
     @Override
     protected void shutdown() {
+        // Stop tick handler
+        if (tickTask != null) {
+            tickTask.cancel(true);
+        }
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+
         if (core != null) {
             core.stop();
         }
         LOGGER.atInfo().log("Entity Inspector stopped");
+    }
+
+    /**
+     * Start the tick handler to flush position batches periodically.
+     */
+    private void startTickHandler() {
+        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "InspectorTick");
+            t.setDaemon(true);
+            return t;
+        });
+
+        tickTask = scheduler.scheduleAtFixedRate(() -> {
+            World world = core.getCurrentWorld();
+            if (world != null && updateSystem != null) {
+                world.execute(() -> updateSystem.flushPositionBatch());
+            }
+        }, 0, 50, TimeUnit.MILLISECONDS);
     }
 
     /**

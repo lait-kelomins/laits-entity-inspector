@@ -62,6 +62,14 @@ public interface DataTransport {
     void sendEntityUpdate(EntitySnapshot entity);
 
     /**
+     * Send notification that an entity's components have changed, with list of changed component names.
+     */
+    default void sendEntityUpdate(EntitySnapshot entity, java.util.List<String> changedComponents) {
+        // Default implementation ignores changedComponents for backward compatibility
+        sendEntityUpdate(entity);
+    }
+
+    /**
      * Send a batch of position updates.
      * Used for efficient position-only updates.
      */

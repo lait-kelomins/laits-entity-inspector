@@ -16,6 +16,29 @@ class EntityInspector {
         this.lastUpdate = null;
         this.worldName = '---';
         this.filter = '';
+        this.componentFilter = '';
+
+        // Global changed components tracking (across all entities)
+        this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
+        this.chipRetentionMs = 8000;
+        this.maxGlobalChips = 12;
+
+        // Components to ignore in global change tracking (too noisy)
+        this.ignoredComponents = new Set([
+            'TransformComponent',
+            'SnapshotBuffer',
+            'InteractionManager',
+            'MovementComponent',
+            'PhysicsComponent',
+            'VelocityComponent',
+            'PositionComponent',
+            'Velocity',
+            'PositionDataComponent',
+            'ChunkTracker',
+            'MovementAudioComponent',
+            'ItemComponent',
+            'ItemPhysicsComponent'
+        ]);
 
         // DOM elements
         this.statusEl = document.getElementById('connection-status');
@@ -26,13 +49,19 @@ class EntityInspector {
         this.entityListEl = document.getElementById('entity-list');
         this.inspectorEl = document.getElementById('inspector-content');
         this.searchInput = document.getElementById('search-input');
+        this.componentFilterInput = document.getElementById('component-filter');
         this.logContent = document.getElementById('log-content');
         this.eventLog = document.getElementById('event-log');
+
+        // Global changes header elements
+        this.changedHeaderEl = document.getElementById('changed-components-header');
+        this.componentChipsEl = document.getElementById('component-chips');
 
         // Initialize
         this.setupEventListeners();
         this.connect();
         this.startUptimeTimer();
+        this.startGlobalChangesCleanup();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -138,7 +167,7 @@ class EntityInspector {
 
         if (data.entities && Array.isArray(data.entities)) {
             data.entities.forEach(entity => {
-                this.entities.set(entity.entityId, entity);
+                this.entities.set(entity.entityId, this.normalizeEntityPosition(entity));
             });
         }
 
@@ -148,6 +177,7 @@ class EntityInspector {
     }
 
     handleSpawn(entity) {
+        entity = this.normalizeEntityPosition(entity);
         this.entities.set(entity.entityId, entity);
         this.log(`SPAWN: ${entity.modelAssetId || entity.entityType || 'Entity'} #${entity.entityId}`, 'spawn');
         this.renderEntityList();
@@ -189,9 +219,15 @@ class EntityInspector {
         }
     }
 
-    handleUpdate(entity) {
+    handleUpdate(data) {
+        const entity = this.normalizeEntityPosition(data);
         const existing = this.entities.get(entity.entityId);
         this.entities.set(entity.entityId, entity);
+
+        // Track changed components if provided
+        if (data.changedComponents) {
+            this.trackComponentChanges(entity.entityId, data.changedComponents);
+        }
 
         // Flash the updated row
         const row = document.querySelector(`[data-entity-id="${entity.entityId}"]`);
@@ -327,15 +363,24 @@ class EntityInspector {
             </div>
         `;
 
-        // Render components
+        // Render components (filtered)
         if (entity.components && Object.keys(entity.components).length > 0) {
-            html += '<div class="components-list">';
+            const filteredComponents = Object.entries(entity.components)
+                .filter(([name]) => this.componentMatchesFilter(name));
 
-            for (const [name, data] of Object.entries(entity.components)) {
-                html += this.renderComponent(name, data);
+            if (filteredComponents.length > 0) {
+                html += '<div class="components-list">';
+                for (const [name, data] of filteredComponents) {
+                    html += this.renderComponent(name, data);
+                }
+                html += '</div>';
+            } else {
+                html += `
+                    <div class="empty-state" style="height: auto; padding: 20px;">
+                        <pre>NO MATCHING COMPONENTS</pre>
+                    </div>
+                `;
             }
-
-            html += '</div>';
         } else {
             html += `
                 <div class="empty-state" style="height: auto; padding: 20px;">
@@ -384,24 +429,24 @@ class EntityInspector {
     }
 
     renderProperty(key, value, depth = 0) {
-        const indent = '  '.repeat(depth);
+        const indentStyle = `style="padding-left: ${depth * 16}px"`;
 
         if (value === null || value === undefined) {
-            return `<div class="prop-row">${indent}<span class="prop-key">${key}:</span><span class="prop-value">null</span></div>`;
+            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value">null</span></div>`;
         }
 
         if (typeof value === 'object' && !Array.isArray(value)) {
-            let html = `<div class="prop-row">${indent}<span class="prop-key">${key}:</span><span class="prop-value">{</span></div>`;
+            let html = `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value">{</span></div>`;
             for (const [k, v] of Object.entries(value)) {
                 html += this.renderProperty(k, v, depth + 1);
             }
-            html += `<div class="prop-row">${indent}<span class="prop-value">}</span></div>`;
+            html += `<div class="prop-row" ${indentStyle}><span class="prop-value">}</span></div>`;
             return html;
         }
 
         if (Array.isArray(value)) {
             const formatted = value.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ');
-            return `<div class="prop-row">${indent}<span class="prop-key">${key}:</span><span class="prop-value number">[${formatted}]</span></div>`;
+            return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="prop-value number">[${formatted}]</span></div>`;
         }
 
         let valueClass = 'prop-value';
@@ -418,12 +463,81 @@ class EntityInspector {
             displayValue = value ? 'true' : 'false';
         }
 
-        return `<div class="prop-row">${indent}<span class="prop-key">${key}:</span><span class="${valueClass}">${displayValue}</span></div>`;
+        return `<div class="prop-row" ${indentStyle}><span class="prop-key">${key}:</span><span class="${valueClass}">${displayValue}</span></div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Normalize entity position data structure.
+     * Backend sends entity.x/y/z directly, but code expects entity.position.x/y/z
+     */
+    normalizeEntityPosition(entity) {
+        if (entity.x !== undefined && !entity.position) {
+            entity.position = { x: entity.x, y: entity.y, z: entity.z };
+        }
+        return entity;
+    }
+
+    /**
+     * Track component changes globally across all entities.
+     */
+    trackComponentChanges(entityId, changedComponents) {
+        if (!changedComponents || !changedComponents.length) return;
+
+        const entity = this.entities.get(entityId);
+        const entityName = entity ? (entity.modelAssetId || entity.entityType || 'Entity') : 'Entity';
+        const now = Date.now();
+
+        // Filter out ignored/noisy components and add to global list
+        changedComponents
+            .filter(name => !this.ignoredComponents.has(name))
+            .forEach(name => {
+                this.globalChanges.push({
+                    entityId,
+                    entityName,
+                    componentName: name,
+                    timestamp: now
+                });
+            });
+
+        // Clean up old changes and limit size
+        this.globalChanges = this.globalChanges
+            .filter(c => now - c.timestamp < this.chipRetentionMs)
+            .slice(-this.maxGlobalChips * 2); // Keep some buffer
+
+        this.updateChangedComponentsHeader();
+    }
+
+    /**
+     * Update the global changed components header display.
+     */
+    updateChangedComponentsHeader() {
+        const now = Date.now();
+
+        // Filter to recent changes only
+        const recent = this.globalChanges.filter(c => now - c.timestamp < this.chipRetentionMs);
+
+        if (recent.length === 0) {
+            this.changedHeaderEl.classList.add('hidden');
+            return;
+        }
+
+        this.changedHeaderEl.classList.remove('hidden');
+
+        // Deduplicate by entity+component (keep most recent), then take last N
+        const seen = new Map();
+        recent.forEach(c => seen.set(`${c.entityId}:${c.componentName}`, c));
+        const uniqueChanges = Array.from(seen.values())
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, this.maxGlobalChips);
+
+        this.componentChipsEl.innerHTML = uniqueChanges
+            .map(c => `<span class="component-chip" title="${c.entityName} #${c.entityId}">${c.entityName}.${c.componentName}</span>`)
+            .join('');
+    }
 
     formatPosition(pos, full = false) {
         if (!pos) return '---';
@@ -445,6 +559,22 @@ class EntityInspector {
             const id = String(entity.entityId);
             return type.includes(search) || model.includes(search) || id.includes(search);
         });
+    }
+
+    /**
+     * Check if a component name matches the component filter.
+     * Supports comma-separated partial matches (e.g., "interaction, action, npc")
+     */
+    componentMatchesFilter(componentName) {
+        if (!this.componentFilter) {
+            return true; // No filter = show all
+        }
+
+        const nameLower = componentName.toLowerCase();
+        const filters = this.componentFilter.split(',').map(f => f.trim()).filter(f => f);
+
+        // Match if component name contains any of the filter terms
+        return filters.some(filter => nameLower.includes(filter));
     }
 
     selectEntity(entityId) {
@@ -488,6 +618,20 @@ class EntityInspector {
         }, 1000);
     }
 
+    startGlobalChangesCleanup() {
+        // Periodically clean up and refresh the global changes header
+        setInterval(() => {
+            const now = Date.now();
+            const before = this.globalChanges.length;
+            this.globalChanges = this.globalChanges.filter(c => now - c.timestamp < this.chipRetentionMs);
+
+            // Refresh display if changes were removed
+            if (this.globalChanges.length !== before || this.globalChanges.length > 0) {
+                this.updateChangedComponentsHeader();
+            }
+        }, 1000);
+    }
+
     log(message, type = 'info') {
         const time = new Date().toTimeString().split(' ')[0];
         const entry = document.createElement('div');
@@ -506,16 +650,22 @@ class EntityInspector {
     // ═══════════════════════════════════════════════════════════════
 
     setupEventListeners() {
-        // Search/filter
+        // Entity search/filter
         this.searchInput.addEventListener('input', (e) => {
             this.filter = e.target.value.trim();
             this.renderEntityList();
         });
 
+        // Component filter
+        this.componentFilterInput.addEventListener('input', (e) => {
+            this.componentFilter = e.target.value.trim().toLowerCase();
+            this.renderInspector();
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Don't capture when typing in search
-            if (e.target === this.searchInput && e.key !== 'Escape') {
+            // Don't capture when typing in any input field
+            if ((e.target === this.searchInput || e.target === this.componentFilterInput) && e.key !== 'Escape') {
                 return;
             }
 

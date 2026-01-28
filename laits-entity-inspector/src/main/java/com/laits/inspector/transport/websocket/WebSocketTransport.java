@@ -158,6 +158,11 @@ public class WebSocketTransport implements DataTransport {
     }
 
     @Override
+    public void sendEntityUpdate(EntitySnapshot entity, List<String> changedComponents) {
+        broadcast(OutgoingMessage.entityUpdate(entity, changedComponents).toJson());
+    }
+
+    @Override
     public void sendPositionBatch(List<PositionUpdate> positions) {
         if (positions == null || positions.isEmpty()) {
             return;

@@ -17,6 +17,7 @@ import com.laits.inspector.data.WorldSnapshot;
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -138,9 +139,56 @@ public class EntityDataCollector {
                 }
             }
 
+            // Collect all other components from archetype
+            collectAllComponents(chunk, index, builder);
+
             return builder.build();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    // Component types already handled explicitly
+    private static final Set<String> HANDLED_COMPONENTS = Set.of(
+            "TransformComponent", "ModelComponent", "UUIDComponent", "NPCEntity"
+    );
+
+    /**
+     * Collect all components from the archetype that aren't already handled.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void collectAllComponents(ArchetypeChunk<EntityStore> chunk, int index, EntitySnapshot.Builder builder) {
+        try {
+            Archetype<EntityStore> archetype = chunk.getArchetype();
+            if (archetype == null) {
+                return;
+            }
+
+            for (int i = archetype.getMinIndex(); i < archetype.length(); i++) {
+                ComponentType type = archetype.get(i);
+                if (type == null) {
+                    continue;
+                }
+
+                Object component = chunk.getComponent(index, type);
+                if (component == null) {
+                    continue;
+                }
+
+                String typeName = component.getClass().getSimpleName();
+
+                // Skip already-handled components
+                if (HANDLED_COMPONENTS.contains(typeName)) {
+                    continue;
+                }
+
+                ComponentData data = serializer.serialize(component);
+                if (data != null) {
+                    builder.addComponent(typeName, data);
+                }
+            }
+        } catch (Exception e) {
+            // Silent - archetype access may fail for some entities
         }
     }
 
@@ -200,9 +248,51 @@ public class EntityDataCollector {
                 }
             }
 
+            // Collect all other components from holder's archetype
+            collectAllComponentsFromHolder(holder, store, builder);
+
             return builder.build();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Collect all components from a Holder that aren't already handled.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void collectAllComponentsFromHolder(Holder<EntityStore> holder, Store<EntityStore> store, EntitySnapshot.Builder builder) {
+        try {
+            Archetype<EntityStore> archetype = holder.getArchetype();
+            if (archetype == null) {
+                return;
+            }
+
+            for (int i = archetype.getMinIndex(); i < archetype.length(); i++) {
+                ComponentType type = archetype.get(i);
+                if (type == null) {
+                    continue;
+                }
+
+                Object component = holder.getComponent(type);
+                if (component == null) {
+                    continue;
+                }
+
+                String typeName = component.getClass().getSimpleName();
+
+                // Skip already-handled components
+                if (HANDLED_COMPONENTS.contains(typeName)) {
+                    continue;
+                }
+
+                ComponentData data = serializer.serialize(component);
+                if (data != null) {
+                    builder.addComponent(typeName, data);
+                }
+            }
+        } catch (Exception e) {
+            // Silent - archetype access may fail for some entities
         }
     }
 
