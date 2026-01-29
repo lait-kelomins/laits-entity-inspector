@@ -2,6 +2,7 @@ package com.laits.inspector.transport;
 
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.EntitySnapshot;
+import com.laits.inspector.data.PacketLogEntry;
 import com.laits.inspector.data.PositionUpdate;
 import com.laits.inspector.data.WorldSnapshot;
 
@@ -74,6 +75,22 @@ public interface DataTransport {
      * Used for efficient position-only updates.
      */
     void sendPositionBatch(List<PositionUpdate> positions);
+
+    /**
+     * Send a packet log entry.
+     * Used for network packet debugging.
+     */
+    default void sendPacketLog(PacketLogEntry entry) {
+        // Optional - not all transports need packet logging
+    }
+
+    /**
+     * Send current configuration to all clients.
+     * Used for settings synchronization.
+     */
+    default void sendConfigSync(InspectorConfig config) {
+        // Optional - not all transports support config sync
+    }
 
     // Listener for request/response transports
 

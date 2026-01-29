@@ -6,8 +6,8 @@ import com.hypixel.hytale.component.system.HolderSystem;
 import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.laits.inspector.core.EntityDataCollector.CollectionResult;
 import com.laits.inspector.core.InspectorCore;
-import com.laits.inspector.data.EntitySnapshot;
 
 import javax.annotation.Nonnull;
 
@@ -43,10 +43,10 @@ public class EntityLifecycleSystem extends HolderSystem<EntityStore> {
         }
 
         try {
-            // Collect entity data using holder
-            EntitySnapshot snapshot = core.getCollector().collectFromHolder(holder, store);
-            if (snapshot != null) {
-                core.onEntitySpawn(snapshot);
+            // Collect entity data using holder with component references
+            CollectionResult result = core.getCollector().collectFromHolderWithRefs(holder, store);
+            if (result != null && result.snapshot() != null) {
+                core.onEntitySpawn(result.snapshot(), result.componentRefs());
             }
         } catch (Exception e) {
             // Silent - don't crash the system

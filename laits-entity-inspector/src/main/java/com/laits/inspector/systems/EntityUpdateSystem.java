@@ -7,8 +7,8 @@ import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.math.vector.Vector3d;
+import com.laits.inspector.core.EntityDataCollector.CollectionResult;
 import com.laits.inspector.core.InspectorCore;
-import com.laits.inspector.data.EntitySnapshot;
 import com.laits.inspector.data.PositionUpdate;
 
 import javax.annotation.Nonnull;
@@ -135,9 +135,9 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
                 if (now - tracked.lastFullUpdate > 1000) { // At least 1 second between full updates
                     tracked.lastFullUpdate = now;
 
-                    EntitySnapshot snapshot = core.getCollector().collectFromChunk(chunk, index);
-                    if (snapshot != null) {
-                        core.onEntityUpdate(snapshot);
+                    CollectionResult result = core.getCollector().collectFromChunkWithRefs(chunk, index);
+                    if (result != null && result.snapshot() != null) {
+                        core.onEntityUpdate(result.snapshot(), result.componentRefs());
                     }
                 }
             }

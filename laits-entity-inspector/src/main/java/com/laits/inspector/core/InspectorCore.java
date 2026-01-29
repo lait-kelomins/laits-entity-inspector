@@ -2,23 +2,25 @@ package com.laits.inspector.core;
 
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.laits.inspector.cache.InMemoryCache;
+import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.ComponentData;
 import com.laits.inspector.data.EntitySnapshot;
+import com.laits.inspector.data.PacketLogEntry;
 import com.laits.inspector.data.PositionUpdate;
 import com.laits.inspector.data.WorldSnapshot;
+import com.laits.inspector.data.asset.*;
 import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Core orchestrator for the Entity Inspector.
@@ -29,25 +31,69 @@ public class InspectorCore implements DataTransportListener {
 
     private final InspectorConfig config;
     private final EntityDataCollector collector;
+    private final InspectorCache cache;
     private final List<DataTransport> transports = new ArrayList<>();
     private final AtomicBoolean enabled = new AtomicBoolean(true);
     private final AtomicBoolean paused = new AtomicBoolean(false);
-
-    // Cache for entity lookups by ID (LinkedHashMap preserves insertion order for LRU eviction)
-    private final Map<Long, EntitySnapshot> entityCache = Collections.synchronizedMap(new LinkedHashMap<>());
+    private final AtomicBoolean packetLogPaused = new AtomicBoolean(false);
 
     // Previous snapshots for change detection
     private final Map<Long, EntitySnapshot> previousSnapshots = new ConcurrentHashMap<>();
 
-    // Lock object for cache operations requiring atomicity
-    private final Object cacheLock = new Object();
-
     // Reference to current world for snapshot requests
     private volatile World currentWorld;
 
+    // Asset browser and Hytalor services
+    private final AssetCollector assetCollector;
+    private final HytalorDetector hytalorDetector;
+    private final PatchManager patchManager;
+    private final SessionHistoryTracker historyTracker;
+
     public InspectorCore(InspectorConfig config) {
+        this(config, new InMemoryCache());
+    }
+
+    public InspectorCore(InspectorConfig config, InspectorCache cache) {
         this.config = config;
         this.collector = new EntityDataCollector(config);
+        this.cache = cache;
+        this.cache.setLimits(config.getMaxCachedEntities(), config.getMaxCachedPackets());
+
+        // Initialize asset browser and Hytalor services
+        this.assetCollector = new AssetCollector();
+        this.hytalorDetector = new HytalorDetector();
+        this.patchManager = new PatchManager();
+        this.historyTracker = new SessionHistoryTracker();
+    }
+
+    /**
+     * Initialize asset browser and Hytalor detection.
+     * Should be called after server is fully loaded.
+     */
+    public void initializeAssetBrowser() {
+        LOGGER.atInfo().log("Initializing asset browser...");
+
+        // Detect Hytalor
+        hytalorDetector.detect();
+
+        // Initialize patch manager
+        patchManager.initialize(
+                hytalorDetector.getDraftDirectory(),
+                hytalorDetector.getPatchDirectory()
+        );
+
+        // Initialize asset collector (uses AssetRegistry internally)
+        assetCollector.initialize();
+
+        LOGGER.atInfo().log("Asset browser initialized. Hytalor: %s",
+                hytalorDetector.isHytalorPresent() ? "ENABLED" : "DISABLED");
+    }
+
+    /**
+     * Get the cache (for testing or direct access).
+     */
+    public InspectorCache getCache() {
+        return cache;
     }
 
     /**
@@ -91,7 +137,7 @@ public class InspectorCore implements DataTransportListener {
                         transport.getClass().getSimpleName(), e.getMessage());
             }
         }
-        entityCache.clear();
+        cache.clear();
         previousSnapshots.clear();
     }
 
@@ -137,6 +183,15 @@ public class InspectorCore implements DataTransportListener {
         LOGGER.atInfo().log("Inspector %s", value ? "paused" : "resumed");
     }
 
+    public boolean isPacketLogPaused() {
+        return packetLogPaused.get();
+    }
+
+    public void setPacketLogPaused(boolean value) {
+        packetLogPaused.set(value);
+        LOGGER.atInfo().log("Packet logging %s", value ? "paused" : "resumed");
+    }
+
     public int getUpdateIntervalTicks() {
         return config.getUpdateIntervalTicks();
     }
@@ -160,11 +215,19 @@ public class InspectorCore implements DataTransportListener {
      * Must be called from world thread.
      */
     public void onEntitySpawn(EntitySnapshot snapshot) {
+        onEntitySpawn(snapshot, null);
+    }
+
+    /**
+     * Called when a new entity spawns with component references for expansion.
+     * Must be called from world thread.
+     */
+    public void onEntitySpawn(EntitySnapshot snapshot, Map<String, Object> componentObjects) {
         if (!shouldProcess() || snapshot == null) {
             return;
         }
 
-        putWithEviction(snapshot.getEntityId(), snapshot);
+        cache.putEntity(snapshot.getEntityId(), snapshot, componentObjects);
         broadcast(t -> t.sendEntitySpawn(snapshot));
     }
 
@@ -177,7 +240,7 @@ public class InspectorCore implements DataTransportListener {
             return;
         }
 
-        entityCache.remove(entityId);
+        cache.removeEntity(entityId);
         previousSnapshots.remove(entityId);
         broadcast(t -> t.sendEntityDespawn(entityId, uuid));
     }
@@ -187,6 +250,14 @@ public class InspectorCore implements DataTransportListener {
      * Must be called from world thread.
      */
     public void onEntityUpdate(EntitySnapshot snapshot) {
+        onEntityUpdate(snapshot, null);
+    }
+
+    /**
+     * Called when an entity's components change with component references for expansion.
+     * Must be called from world thread.
+     */
+    public void onEntityUpdate(EntitySnapshot snapshot, Map<String, Object> componentObjects) {
         if (!shouldProcess() || snapshot == null) {
             return;
         }
@@ -194,29 +265,10 @@ public class InspectorCore implements DataTransportListener {
         // Detect which components changed
         List<String> changedComponents = detectChangedComponents(snapshot);
 
-        putWithEviction(snapshot.getEntityId(), snapshot);
+        cache.putEntity(snapshot.getEntityId(), snapshot, componentObjects);
         previousSnapshots.put(snapshot.getEntityId(), snapshot);
 
         broadcast(t -> t.sendEntityUpdate(snapshot, changedComponents));
-    }
-
-    /**
-     * Put an entity into the cache, evicting oldest entries if limit exceeded.
-     */
-    private void putWithEviction(long entityId, EntitySnapshot snapshot) {
-        synchronized (cacheLock) {
-            entityCache.put(entityId, snapshot);
-
-            int maxSize = config.getMaxCachedEntities();
-            while (entityCache.size() > maxSize) {
-                Iterator<Long> it = entityCache.keySet().iterator();
-                if (it.hasNext()) {
-                    Long oldestId = it.next();
-                    it.remove();
-                    previousSnapshots.remove(oldestId);
-                }
-            }
-        }
     }
 
     /**
@@ -254,6 +306,46 @@ public class InspectorCore implements DataTransportListener {
         broadcast(t -> t.sendPositionBatch(positions));
     }
 
+    /**
+     * Called when a network packet is captured.
+     * Can be called from any thread.
+     */
+    public void onPacketLog(PacketLogEntry entry) {
+        onPacketLog(entry, null);
+    }
+
+    /**
+     * Called when a network packet is captured with original packet object for expansion.
+     * Can be called from any thread.
+     */
+    public void onPacketLog(PacketLogEntry entry, Object originalPacket) {
+        if (!shouldProcess() || entry == null) {
+            return;
+        }
+
+        // Check if packet logging is enabled
+        if (!config.getPacketLog().isEnabled()) {
+            return;
+        }
+
+        // Check if packet log is paused (don't cache or send new packets)
+        if (isPacketLogPaused()) {
+            return;
+        }
+
+        // Check if this packet type is excluded
+        if (config.getPacketLog().isPacketExcluded(entry.getPacketName())) {
+            return;
+        }
+
+        // Cache the original packet for expansion
+        if (originalPacket != null) {
+            cache.putPacket(entry, originalPacket);
+        }
+
+        broadcast(t -> t.sendPacketLog(entry));
+    }
+
     // DataTransportListener implementation
 
     @Override
@@ -267,13 +359,102 @@ public class InspectorCore implements DataTransportListener {
         return WorldSnapshot.builder()
                 .worldId(world.getName())
                 .worldName(world.getName())
-                .entities(new ArrayList<>(entityCache.values()))
+                .entities(new ArrayList<>(cache.getAllEntities()))
                 .build();
     }
 
     @Override
     public EntitySnapshot onRequestEntity(long entityId) {
-        return entityCache.get(entityId);
+        return cache.getEntitySnapshot(entityId);
+    }
+
+    @Override
+    public InspectorConfig onConfigUpdate(Map<String, Object> updates) {
+        if (updates == null || updates.isEmpty()) {
+            return config;
+        }
+
+        try {
+            // Apply updates to config
+            for (var entry : updates.entrySet()) {
+                applyConfigUpdate(entry.getKey(), entry.getValue());
+            }
+
+            // Save config
+            config.save();
+
+            LOGGER.atInfo().log("Configuration updated: %s", updates.keySet());
+
+            // Broadcast updated config to all clients
+            broadcastConfigSync();
+
+            return config;
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to update config: %s", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public InspectorConfig getConfig() {
+        return config;
+    }
+
+    @Override
+    public Object onRequestExpand(long entityId, String path) {
+        LOGGER.atInfo().log("Expand request: entityId=%d, path=%s", entityId, path);
+        Object result = cache.expandEntityPath(entityId, path);
+        LOGGER.atInfo().log("Expand result: %s", result != null ? "success" : "null");
+        return result;
+    }
+
+    /**
+     * Handle expand request for packet data.
+     */
+    @Override
+    public Object onRequestPacketExpand(long packetId, String path) {
+        LOGGER.atInfo().log("Packet expand request: packetId=%d, path=%s", packetId, path);
+        Object result = cache.expandPacketPath(packetId, path);
+        LOGGER.atInfo().log("Packet expand result: %s", result != null ? "success" : "null");
+        return result;
+    }
+
+    /**
+     * Apply a single config update.
+     */
+    @SuppressWarnings("unchecked")
+    private void applyConfigUpdate(String key, Object value) {
+        switch (key) {
+            case "enabled" -> config.setEnabled((Boolean) value);
+            case "updateIntervalTicks" -> config.setUpdateIntervalTicks(((Number) value).intValue());
+            case "includeNPCs" -> config.setIncludeNPCs((Boolean) value);
+            case "includePlayers" -> config.setIncludePlayers((Boolean) value);
+            case "includeItems" -> config.setIncludeItems((Boolean) value);
+            case "maxCachedEntities" -> config.setMaxCachedEntities(((Number) value).intValue());
+
+            case "websocketEnabled" -> config.getWebsocket().setEnabled((Boolean) value);
+            case "websocketMaxClients" -> config.getWebsocket().setMaxClients(((Number) value).intValue());
+
+            case "packetLogEnabled" -> config.getPacketLog().setEnabled((Boolean) value);
+            case "packetLogExcluded" -> {
+                if (value instanceof List<?> list) {
+                    config.getPacketLog().setExcludedPackets(
+                        list.stream()
+                            .map(Object::toString)
+                            .collect(Collectors.toList())
+                    );
+                }
+            }
+
+            default -> LOGGER.atWarning().log("Unknown config key: %s", key);
+        }
+    }
+
+    /**
+     * Broadcast current configuration to all connected clients.
+     */
+    public void broadcastConfigSync() {
+        broadcast(t -> t.sendConfigSync(config));
     }
 
     // Internal helpers
@@ -292,5 +473,135 @@ public class InspectorCore implements DataTransportListener {
                 }
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ASSET BROWSER IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public FeatureInfo getFeatureInfo() {
+        return FeatureInfo.builder()
+                .hytalorEnabled(hytalorDetector.isHytalorPresent())
+                .draftDirectory(hytalorDetector.getDraftDirectoryString())
+                .patchDirectory(hytalorDetector.getPatchDirectoryString())
+                .patchAssetPackName(hytalorDetector.getPatchAssetPackName())
+                .build();
+    }
+
+    @Override
+    public List<AssetCategory> getAssetCategories() {
+        return assetCollector.getCategories();
+    }
+
+    @Override
+    public List<AssetEntry> getAssets(String category, String filter) {
+        return assetCollector.getAssets(category, filter);
+    }
+
+    @Override
+    public AssetDetail getAssetDetail(String category, String assetId) {
+        return assetCollector.getAssetDetail(category, assetId);
+    }
+
+    @Override
+    public List<AssetEntry> searchAssets(String query) {
+        return assetCollector.searchAllAssets(query);
+    }
+
+    @Override
+    public Object onRequestAssetExpand(String category, String assetId, String path) {
+        // TODO: Implement asset field expansion
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // HYTALOR PATCHING IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public List<String> testWildcard(String wildcardPath) {
+        return assetCollector.testWildcard(wildcardPath);
+    }
+
+    @Override
+    public String generatePatch(String baseAssetPath, Map<String, Object> original,
+                                 Map<String, Object> modified, String operation) {
+        return patchManager.generatePatchFromDiff(baseAssetPath, original, modified, operation);
+    }
+
+    @Override
+    public String saveDraft(String filename, String patchJson) {
+        try {
+            patchManager.saveDraft(filename, patchJson);
+
+            // Extract base path for history
+            String basePath = extractBaseAssetPath(patchJson);
+            historyTracker.recordPatch(filename, basePath, "draft");
+
+            return null; // Success
+        } catch (Exception e) {
+            return e.getMessage();
+        }
+    }
+
+    @Override
+    public String publishPatch(String filename, String patchJson) {
+        LOGGER.atInfo().log("Publishing patch: %s", filename);
+        try {
+            patchManager.publishPatch(filename, patchJson);
+
+            // Extract base path for history
+            String basePath = extractBaseAssetPath(patchJson);
+            historyTracker.recordPatch(filename, basePath, "publish");
+
+            LOGGER.atInfo().log("Patch published successfully: %s", filename);
+            return null; // Success
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to publish patch %s: %s", filename, e.getMessage());
+            return e.getMessage();
+        }
+    }
+
+    @Override
+    public List<PatchDraft> listDrafts() {
+        return patchManager.listDrafts();
+    }
+
+    @Override
+    public List<HistoryEntry> getSessionHistory() {
+        return historyTracker.getHistory();
+    }
+
+    /**
+     * Extract BaseAssetPath from patch JSON.
+     */
+    private String extractBaseAssetPath(String patchJson) {
+        try {
+            var obj = com.google.gson.JsonParser.parseString(patchJson).getAsJsonObject();
+            return obj.has("BaseAssetPath") ? obj.get("BaseAssetPath").getAsString() : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SERVICE GETTERS
+    // ═══════════════════════════════════════════════════════════════
+
+    public AssetCollector getAssetCollector() {
+        return assetCollector;
+    }
+
+    public HytalorDetector getHytalorDetector() {
+        return hytalorDetector;
+    }
+
+    public PatchManager getPatchManager() {
+        return patchManager;
+    }
+
+    public SessionHistoryTracker getHistoryTracker() {
+        return historyTracker;
     }
 }

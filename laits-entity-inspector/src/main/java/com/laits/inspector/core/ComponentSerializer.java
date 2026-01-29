@@ -46,6 +46,153 @@ public class ComponentSerializer {
         return new ComponentData(typeName, fields);
     }
 
+    /**
+     * Deep serialize an object for expansion requests.
+     * Uses higher depth limit for lazy loading.
+     */
+    public Object serializeDeep(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return serializeValueDeep(value, 0);
+    }
+
+    /**
+     * Serialize with deeper depth limit for expansion.
+     */
+    private Object serializeValueDeep(Object value, int depth) {
+        if (value == null || depth > MAX_DEPTH) {
+            return null;
+        }
+
+        // Primitive types and strings
+        if (value instanceof Number || value instanceof Boolean || value instanceof String) {
+            return value;
+        }
+
+        // Enums
+        if (value instanceof Enum<?>) {
+            return ((Enum<?>) value).name();
+        }
+
+        // UUID
+        if (value instanceof UUID) {
+            return value.toString();
+        }
+
+        // Hytale Vector3d
+        if (value instanceof Vector3d vec) {
+            return Arrays.asList(vec.getX(), vec.getY(), vec.getZ());
+        }
+
+        // byte[] as hex string
+        if (value instanceof byte[] bytes) {
+            if (bytes.length == 0) return "[]";
+            if (bytes.length > 100) {
+                return String.format("[%d bytes]", bytes.length);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < bytes.length; i++) {
+                if (i > 0) sb.append(' ');
+                sb.append(String.format("%02X", bytes[i] & 0xFF));
+            }
+            return sb.toString();
+        }
+
+        // Collections
+        if (value instanceof Collection<?> col) {
+            if (col.isEmpty()) return null;
+            if (col.size() > MAX_COLLECTION_SIZE) {
+                return String.format("[%d items]", col.size());
+            }
+            List<Object> list = new ArrayList<>();
+            for (Object item : col) {
+                Object serialized = serializeValueDeep(item, depth + 1);
+                if (serialized != null) {
+                    list.add(serialized);
+                }
+            }
+            return list.isEmpty() ? null : list;
+        }
+
+        // Maps
+        if (value instanceof Map<?, ?> map) {
+            if (map.isEmpty()) return null;
+            if (map.size() > MAX_COLLECTION_SIZE) {
+                return String.format("{%d entries}", map.size());
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                Object serialized = serializeValueDeep(entry.getValue(), depth + 1);
+                if (serialized != null) {
+                    result.put(key, serialized);
+                }
+            }
+            return result.isEmpty() ? null : result;
+        }
+
+        // Arrays
+        if (value.getClass().isArray()) {
+            if (value instanceof int[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d ints]", arr.length);
+                return Arrays.stream(arr).boxed().toList();
+            }
+            if (value instanceof long[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d longs]", arr.length);
+                return Arrays.stream(arr).boxed().toList();
+            }
+            if (value instanceof double[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d doubles]", arr.length);
+                return Arrays.stream(arr).boxed().toList();
+            }
+            if (value instanceof float[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d floats]", arr.length);
+                List<Float> list = new ArrayList<>();
+                for (float f : arr) list.add(f);
+                return list;
+            }
+            if (value instanceof Object[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d objects]", arr.length);
+                List<Object> list = new ArrayList<>();
+                for (Object item : arr) {
+                    Object serialized = serializeValueDeep(item, depth + 1);
+                    if (serialized != null) {
+                        list.add(serialized);
+                    }
+                }
+                return list.isEmpty() ? null : list;
+            }
+        }
+
+        // Complex objects - always expand in deep mode
+        String typeName = value.getClass().getSimpleName();
+        Map<String, Object> nested = new LinkedHashMap<>();
+        serializeGenericDeep(value, nested, depth + 1);
+        if (!nested.isEmpty()) {
+            nested.put("_type", typeName);
+            return nested;
+        }
+
+        return "[" + typeName + "]";
+    }
+
+    private void serializeGenericDeep(Object component, Map<String, Object> fields, int depth) {
+        List<Field> accessibleFields = getAccessibleFields(component.getClass());
+
+        for (Field field : accessibleFields) {
+            try {
+                Object value = field.get(component);
+                Object serialized = serializeValueDeep(value, depth);
+                if (serialized != null) {
+                    fields.put(field.getName(), serialized);
+                }
+            } catch (Exception e) {
+                // Skip this field
+            }
+        }
+    }
+
     private void serializeTransform(TransformComponent transform, Map<String, Object> fields) {
         try {
             Vector3d pos = transform.getPosition();
@@ -81,12 +228,16 @@ public class ComponentSerializer {
     }
 
     private void serializeGeneric(Object component, Map<String, Object> fields) {
+        serializeGeneric(component, fields, 0);
+    }
+
+    private void serializeGeneric(Object component, Map<String, Object> fields, int depth) {
         List<Field> accessibleFields = getAccessibleFields(component.getClass());
 
         for (Field field : accessibleFields) {
             try {
                 Object value = field.get(component);
-                Object serialized = serializeValue(value);
+                Object serialized = serializeValue(value, depth);
                 if (serialized != null) {
                     fields.put(field.getName(), serialized);
                 }
@@ -123,11 +274,15 @@ public class ComponentSerializer {
         });
     }
 
+    private static final int MAX_DEPTH = 5;
+    private static final int MAX_COLLECTION_SIZE = 50;
+    private static final int EXPANDABLE_DEPTH = 2;  // Depth at which to use expandable markers
+
     /**
      * Serialize a value to a JSON-safe representation.
      */
-    private Object serializeValue(Object value) {
-        if (value == null) {
+    private Object serializeValue(Object value, int depth) {
+        if (value == null || depth > MAX_DEPTH) {
             return null;
         }
 
@@ -151,11 +306,29 @@ public class ComponentSerializer {
             return Arrays.asList(vec.getX(), vec.getY(), vec.getZ());
         }
 
+        // byte[] as hex string
+        if (value instanceof byte[] bytes) {
+            if (bytes.length == 0) return "[]";
+            if (bytes.length > 100) {
+                return String.format("[%d bytes]", bytes.length);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < bytes.length; i++) {
+                if (i > 0) sb.append(' ');
+                sb.append(String.format("%02X", bytes[i] & 0xFF));
+            }
+            return sb.toString();
+        }
+
         // Collections - serialize elements
         if (value instanceof Collection<?> col) {
+            if (col.isEmpty()) return null;
+            if (col.size() > MAX_COLLECTION_SIZE) {
+                return String.format("[%d items]", col.size());
+            }
             List<Object> list = new ArrayList<>();
             for (Object item : col) {
-                Object serialized = serializeValue(item);
+                Object serialized = serializeValue(item, depth + 1);
                 if (serialized != null) {
                     list.add(serialized);
                 }
@@ -165,10 +338,14 @@ public class ComponentSerializer {
 
         // Maps
         if (value instanceof Map<?, ?> map) {
+            if (map.isEmpty()) return null;
+            if (map.size() > MAX_COLLECTION_SIZE) {
+                return String.format("{%d entries}", map.size());
+            }
             Map<String, Object> result = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 String key = String.valueOf(entry.getKey());
-                Object serialized = serializeValue(entry.getValue());
+                Object serialized = serializeValue(entry.getValue(), depth + 1);
                 if (serialized != null) {
                     result.put(key, serialized);
                 }
@@ -179,23 +356,28 @@ public class ComponentSerializer {
         // Arrays
         if (value.getClass().isArray()) {
             if (value instanceof int[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d ints]", arr.length);
                 return Arrays.stream(arr).boxed().toList();
             }
             if (value instanceof long[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d longs]", arr.length);
                 return Arrays.stream(arr).boxed().toList();
             }
             if (value instanceof double[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d doubles]", arr.length);
                 return Arrays.stream(arr).boxed().toList();
             }
             if (value instanceof float[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d floats]", arr.length);
                 List<Float> list = new ArrayList<>();
                 for (float f : arr) list.add(f);
                 return list;
             }
             if (value instanceof Object[] arr) {
+                if (arr.length > MAX_COLLECTION_SIZE) return String.format("[%d objects]", arr.length);
                 List<Object> list = new ArrayList<>();
                 for (Object item : arr) {
-                    Object serialized = serializeValue(item);
+                    Object serialized = serializeValue(item, depth + 1);
                     if (serialized != null) {
                         list.add(serialized);
                     }
@@ -204,7 +386,25 @@ public class ComponentSerializer {
             }
         }
 
-        // For complex objects, just return the class name
-        return "[" + value.getClass().getSimpleName() + "]";
+        // For complex objects at or beyond expandable depth, return expandable marker
+        String typeName = value.getClass().getSimpleName();
+
+        if (depth >= EXPANDABLE_DEPTH) {
+            Map<String, Object> expandable = new LinkedHashMap<>();
+            expandable.put("_expandable", true);
+            expandable.put("_type", typeName);
+            return expandable;
+        }
+
+        // Otherwise serialize their fields recursively
+        Map<String, Object> nested = new LinkedHashMap<>();
+        serializeGeneric(value, nested, depth + 1);
+        if (!nested.isEmpty()) {
+            nested.put("_type", typeName);
+            return nested;
+        }
+
+        // Fallback: just return the class name if no fields could be serialized
+        return "[" + typeName + "]";
     }
 }

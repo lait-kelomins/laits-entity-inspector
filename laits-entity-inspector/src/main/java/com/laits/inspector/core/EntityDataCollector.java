@@ -16,7 +16,9 @@ import com.laits.inspector.data.WorldSnapshot;
 
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -25,6 +27,23 @@ import java.util.UUID;
  * All methods must be called from the world thread (via world.execute() or ECS system callbacks).
  */
 public class EntityDataCollector {
+
+    /**
+     * Result of entity collection containing both the snapshot and component object references.
+     * The component refs can be used for lazy expansion of nested objects.
+     */
+    public record CollectionResult(
+            EntitySnapshot snapshot,
+            Map<String, Object> componentRefs  // componentName -> actual Java object
+    ) {
+        public static CollectionResult of(EntitySnapshot snapshot, Map<String, Object> refs) {
+            return new CollectionResult(snapshot, refs);
+        }
+
+        public static CollectionResult ofSnapshot(EntitySnapshot snapshot) {
+            return new CollectionResult(snapshot, null);
+        }
+    }
 
     // Cached component types for performance
     private static final ComponentType<EntityStore, TransformComponent> TRANSFORM_TYPE = TransformComponent.getComponentType();
@@ -38,6 +57,13 @@ public class EntityDataCollector {
     public EntityDataCollector(InspectorConfig config) {
         this.config = config;
         this.serializer = new ComponentSerializer();
+    }
+
+    /**
+     * Get the component serializer for deep serialization requests.
+     */
+    public ComponentSerializer getSerializer() {
+        return serializer;
     }
 
     /**
@@ -79,10 +105,19 @@ public class EntityDataCollector {
     }
 
     /**
-     * Collect a snapshot of a single entity from a chunk.
+     * Collect a snapshot of a single entity from a chunk (without component refs).
      * MUST be called from world thread.
      */
     public EntitySnapshot collectFromChunk(ArchetypeChunk<EntityStore> chunk, int index) {
+        CollectionResult result = collectFromChunkWithRefs(chunk, index);
+        return result != null ? result.snapshot() : null;
+    }
+
+    /**
+     * Collect a snapshot of a single entity from a chunk with component references.
+     * MUST be called from world thread.
+     */
+    public CollectionResult collectFromChunkWithRefs(ArchetypeChunk<EntityStore> chunk, int index) {
         try {
             Ref<EntityStore> entityRef = chunk.getReferenceTo(index);
             if (entityRef == null) {
@@ -90,6 +125,7 @@ public class EntityDataCollector {
             }
 
             EntitySnapshot.Builder builder = EntitySnapshot.builder();
+            Map<String, Object> componentRefs = new LinkedHashMap<>();
 
             // Entity ID from ref index
             builder.entityId(entityRef.getIndex());
@@ -113,6 +149,7 @@ public class EntityDataCollector {
                 ComponentData transformData = serializer.serialize(transform);
                 if (transformData != null) {
                     builder.addComponent("TransformComponent", transformData);
+                    componentRefs.put("TransformComponent", transform);
                 }
             }
 
@@ -126,6 +163,7 @@ public class EntityDataCollector {
                 ComponentData modelData = serializer.serialize(modelComp);
                 if (modelData != null) {
                     builder.addComponent("ModelComponent", modelData);
+                    componentRefs.put("ModelComponent", modelComp);
                 }
             }
 
@@ -136,13 +174,14 @@ public class EntityDataCollector {
                 ComponentData npcData = serializer.serialize(npc);
                 if (npcData != null) {
                     builder.addComponent("NPCEntity", npcData);
+                    componentRefs.put("NPCEntity", npc);
                 }
             }
 
             // Collect all other components from archetype
-            collectAllComponents(chunk, index, builder);
+            collectAllComponents(chunk, index, builder, componentRefs);
 
-            return builder.build();
+            return CollectionResult.of(builder.build(), componentRefs);
         } catch (Exception e) {
             return null;
         }
@@ -154,10 +193,18 @@ public class EntityDataCollector {
     );
 
     /**
-     * Collect all components from the archetype that aren't already handled.
+     * Collect all components from the archetype that aren't already handled (legacy overload).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void collectAllComponents(ArchetypeChunk<EntityStore> chunk, int index, EntitySnapshot.Builder builder) {
+        collectAllComponents(chunk, index, builder, null);
+    }
+
+    /**
+     * Collect all components from the archetype that aren't already handled.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void collectAllComponents(ArchetypeChunk<EntityStore> chunk, int index, EntitySnapshot.Builder builder, Map<String, Object> componentRefs) {
         try {
             Archetype<EntityStore> archetype = chunk.getArchetype();
             if (archetype == null) {
@@ -185,6 +232,9 @@ public class EntityDataCollector {
                 ComponentData data = serializer.serialize(component);
                 if (data != null) {
                     builder.addComponent(typeName, data);
+                    if (componentRefs != null) {
+                        componentRefs.put(typeName, component);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -193,12 +243,22 @@ public class EntityDataCollector {
     }
 
     /**
-     * Collect a snapshot of a single entity from a Holder.
+     * Collect a snapshot of a single entity from a Holder (without component refs).
      * MUST be called from world thread.
      */
     public EntitySnapshot collectFromHolder(@Nonnull Holder<EntityStore> holder, Store<EntityStore> store) {
+        CollectionResult result = collectFromHolderWithRefs(holder, store);
+        return result != null ? result.snapshot() : null;
+    }
+
+    /**
+     * Collect a snapshot of a single entity from a Holder with component references.
+     * MUST be called from world thread.
+     */
+    public CollectionResult collectFromHolderWithRefs(@Nonnull Holder<EntityStore> holder, Store<EntityStore> store) {
         try {
             EntitySnapshot.Builder builder = EntitySnapshot.builder();
+            Map<String, Object> componentRefs = new LinkedHashMap<>();
 
             // UUID - use as primary identifier
             UUIDComponent uuidComp = holder.getComponent(UUID_TYPE);
@@ -222,6 +282,7 @@ public class EntityDataCollector {
                 ComponentData transformData = serializer.serialize(transform);
                 if (transformData != null) {
                     builder.addComponent("TransformComponent", transformData);
+                    componentRefs.put("TransformComponent", transform);
                 }
             }
 
@@ -235,6 +296,7 @@ public class EntityDataCollector {
                 ComponentData modelData = serializer.serialize(modelComp);
                 if (modelData != null) {
                     builder.addComponent("ModelComponent", modelData);
+                    componentRefs.put("ModelComponent", modelComp);
                 }
             }
 
@@ -245,23 +307,32 @@ public class EntityDataCollector {
                 ComponentData npcData = serializer.serialize(npc);
                 if (npcData != null) {
                     builder.addComponent("NPCEntity", npcData);
+                    componentRefs.put("NPCEntity", npc);
                 }
             }
 
             // Collect all other components from holder's archetype
-            collectAllComponentsFromHolder(holder, store, builder);
+            collectAllComponentsFromHolder(holder, store, builder, componentRefs);
 
-            return builder.build();
+            return CollectionResult.of(builder.build(), componentRefs);
         } catch (Exception e) {
             return null;
         }
     }
 
     /**
-     * Collect all components from a Holder that aren't already handled.
+     * Collect all components from a Holder that aren't already handled (legacy overload).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void collectAllComponentsFromHolder(Holder<EntityStore> holder, Store<EntityStore> store, EntitySnapshot.Builder builder) {
+        collectAllComponentsFromHolder(holder, store, builder, null);
+    }
+
+    /**
+     * Collect all components from a Holder that aren't already handled.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void collectAllComponentsFromHolder(Holder<EntityStore> holder, Store<EntityStore> store, EntitySnapshot.Builder builder, Map<String, Object> componentRefs) {
         try {
             Archetype<EntityStore> archetype = holder.getArchetype();
             if (archetype == null) {
@@ -289,6 +360,9 @@ public class EntityDataCollector {
                 ComponentData data = serializer.serialize(component);
                 if (data != null) {
                     builder.addComponent(typeName, data);
+                    if (componentRefs != null) {
+                        componentRefs.put(typeName, component);
+                    }
                 }
             }
         } catch (Exception e) {

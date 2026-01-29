@@ -9,6 +9,8 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Configuration for the Entity Inspector plugin.
@@ -25,9 +27,13 @@ public class InspectorConfig {
     private boolean includePlayers = true;
     private boolean includeItems = false;
     private int maxCachedEntities = 5000;
+    private int maxCachedPackets = 2000;
 
     // WebSocket transport settings
     private WebSocketConfig websocket = new WebSocketConfig();
+
+    // Packet logging settings
+    private PacketLogConfig packetLog = new PacketLogConfig();
 
     // Transient - not serialized
     private transient Path configPath;
@@ -68,6 +74,39 @@ public class InspectorConfig {
 
         public void setMaxClients(int maxClients) {
             this.maxClients = maxClients;
+        }
+    }
+
+    public static class PacketLogConfig {
+        private boolean enabled = true;
+        private List<String> excludedPackets = new ArrayList<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getExcludedPackets() {
+            return excludedPackets;
+        }
+
+        public void setExcludedPackets(List<String> excludedPackets) {
+            this.excludedPackets = excludedPackets;
+        }
+
+        public boolean isPacketExcluded(String packetName) {
+            if (excludedPackets == null || excludedPackets.isEmpty()) {
+                return false;
+            }
+            for (String excluded : excludedPackets) {
+                if (packetName.contains(excluded)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -131,8 +170,20 @@ public class InspectorConfig {
         this.maxCachedEntities = Math.max(100, maxCachedEntities);
     }
 
+    public int getMaxCachedPackets() {
+        return maxCachedPackets;
+    }
+
+    public void setMaxCachedPackets(int maxCachedPackets) {
+        this.maxCachedPackets = Math.max(100, maxCachedPackets);
+    }
+
     public WebSocketConfig getWebsocket() {
         return websocket;
+    }
+
+    public PacketLogConfig getPacketLog() {
+        return packetLog;
     }
 
     /**
@@ -188,7 +239,9 @@ public class InspectorConfig {
             this.includePlayers = reloaded.includePlayers;
             this.includeItems = reloaded.includeItems;
             this.maxCachedEntities = reloaded.maxCachedEntities;
+            this.maxCachedPackets = reloaded.maxCachedPackets;
             this.websocket = reloaded.websocket;
+            this.packetLog = reloaded.packetLog;
             LOGGER.atInfo().log("Reloaded inspector config");
         }
     }

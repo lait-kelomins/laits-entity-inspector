@@ -10,6 +10,7 @@ import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.core.InspectorCore;
 import com.laits.inspector.systems.EntityLifecycleSystem;
 import com.laits.inspector.systems.EntityUpdateSystem;
+import com.laits.inspector.systems.PacketLoggerSystem;
 import com.laits.inspector.transport.websocket.WebSocketTransport;
 
 import javax.annotation.Nonnull;
@@ -25,13 +26,14 @@ import java.util.concurrent.TimeUnit;
  */
 public class LaitsInspectorPlugin extends JavaPlugin {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final String VERSION = "0.0.1";
+    private static final String VERSION = "0.0.3";
 
     private static LaitsInspectorPlugin INSTANCE;
 
     private InspectorConfig config;
     private InspectorCore core;
     private EntityUpdateSystem updateSystem;
+    private PacketLoggerSystem packetLoggerSystem;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tickTask;
 
@@ -83,11 +85,18 @@ public class LaitsInspectorPlugin extends JavaPlugin {
         // Start transports
         core.start();
 
+        // Start packet logger
+        packetLoggerSystem = new PacketLoggerSystem(core, config);
+        packetLoggerSystem.start();
+
         // Start tick handler for position updates
         startTickHandler();
 
         // Try to get initial world
         setupWorld();
+
+        // Initialize asset browser and Hytalor detection
+        core.initializeAssetBrowser();
 
         LOGGER.atInfo().log("Entity Inspector started - WebSocket on port %d",
                 config.getWebsocket().getPort());
@@ -101,6 +110,11 @@ public class LaitsInspectorPlugin extends JavaPlugin {
         }
         if (scheduler != null) {
             scheduler.shutdownNow();
+        }
+
+        // Stop packet logger
+        if (packetLoggerSystem != null) {
+            packetLoggerSystem.stop();
         }
 
         if (core != null) {
