@@ -1,13 +1,6 @@
 # Entity Inspector GUI
 
-ASCII/terminal-styled debugging interface for the Hytale Entity Inspector plugin.
-
-```
-╔══════════════════════════════════════════════════════════════════╗
-║  █▀▀ █▄░█ ▀█▀ █ ▀█▀ █▄█   █ █▄░█ █▀ █▀█ █▀▀ █▀▀ ▀█▀ █▀█ █▀█      ║
-║  ██▄ █░▀█ ░█░ █ ░█░ ░█░   █ █░▀█ ▄█ █▀▀ ██▄ █▄▄ ░█░ █▄█ █▀▄      ║
-╚══════════════════════════════════════════════════════════════════╝
-```
+ASCII/terminal-styled web interface for the Hytale Entity Inspector plugin.
 
 ## Usage
 
@@ -15,20 +8,29 @@ ASCII/terminal-styled debugging interface for the Hytale Entity Inspector plugin
 2. Open `index.html` in a browser
 3. GUI auto-connects to `ws://localhost:8765`
 
-## Features
+## Updating
 
-- **Real-time entity tracking** - Spawn/despawn/update events
-- **Component inspector** - Click entity to see all component data
-- **Search/filter** - Filter by type, model, or ID
-- **Auto-reconnect** - Automatically reconnects on disconnect
-- **Event log** - Press `L` to toggle event log
+```powershell
+.\update.ps1           # Normal update
+.\update.ps1 -Force    # Force reinstall
+.\update.ps1 -Configure # Reconfigure mod path
+```
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `R` | Reconnect to server |
-| `C` | Clear local entity cache |
-| `ESC` | Deselect entity / clear search |
+| `Space` | Toggle global pause |
+| `R` | Reconnect |
+| `C` | Clear caches |
+| `Esc` | Deselect / close |
 | `L` | Toggle event log |
-| `/` | Focus search box |
+| `P` | Toggle packet log |
+| `S` | Settings |
+| `H` | Toggle header |
+| `/` | Focus search |
+| `E` | Entities tab |
+| `A` | Assets tab |
+| `W` | Alarms tab |
+
+See the [main README](../README.md) for full documentation.
