@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.0.6';
+const GUI_VERSION = '0.0.7';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 /**
@@ -3124,11 +3124,6 @@ class EntityInspector {
                 case 'p':
                     // Toggle packet log panel
                     this.togglePacketLogPanel();
-                    break;
-
-                case 'f':
-                    // Toggle packet fullscreen
-                    this.togglePacketFullscreen();
                     break;
 
                 case 's':
