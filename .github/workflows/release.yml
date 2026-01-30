@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build mod
+        run: |
+          cd laits-entity-inspector
+          chmod +x gradlew
+          ./gradlew build -x test
+
+      - name: Package GUI
+        run: |
+          cd laits-entity-inspector-gui
+          zip -r ../laits-entity-inspector-gui.zip .
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Lait's Entity Inspector v${{ steps.version.outputs.VERSION }}"
+          files: |
+            laits-entity-inspector/build/libs/laits-entity-inspector-*.jar
+            laits-entity-inspector-gui.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
