@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.0';
+const GUI_VERSION = '0.1.1';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 // Storage key prefix for localStorage
