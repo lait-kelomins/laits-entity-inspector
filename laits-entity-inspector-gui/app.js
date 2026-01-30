@@ -4,8 +4,28 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.0';
+const GUI_VERSION = '0.1.1';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
+
+// Storage key prefix for localStorage
+const STORAGE_PREFIX = 'inspector-';
+
+// Settings to persist with their defaults
+const PERSISTED_SETTINGS = {
+    'active-tab': 'entities',
+    'filter': '',
+    'component-filter': '',
+    'asset-filter': '',
+    'alarms-filter': '',
+    'alarms-sort': 'name',
+    'packet-log-paused': true,
+    'packet-log-filter': '',
+    'packet-direction-filter': 'all',
+    'packet-log-collapsed': false,
+    'entity-list-paused': true,
+    'inspector-paused': true,
+    'live-changes-paused': true
+};
 
 /**
  * Escape HTML to prevent XSS attacks from malicious entity/component data.
@@ -33,11 +53,13 @@ class EntityInspector {
         this.startTime = Date.now();
         this.lastUpdate = null;
         this.worldName = '---';
-        this.filter = '';
-        this.componentFilter = '';
+
+        // Load persisted UI settings
+        this.filter = this.loadSetting('filter');
+        this.componentFilter = this.loadSetting('component-filter');
 
         // Tab state
-        this.activeTab = 'entities';
+        this.activeTab = this.loadSetting('active-tab');
 
         // Asset browser state
         this.hytalorEnabled = false;
@@ -45,7 +67,7 @@ class EntityInspector {
         this.selectedCategory = null;
         this.selectedAsset = null;
         this.assetDetail = null;
-        this.assetFilter = '';
+        this.assetFilter = this.loadSetting('asset-filter');
         this.sessionHistory = [];
         this.searchResults = {}; // categoryId -> matching assets
 
@@ -54,8 +76,8 @@ class EntityInspector {
         this.pendingRoleFetches = new Set();
 
         // Alarms panel state
-        this.alarmsFilter = '';
-        this.alarmsSort = 'name'; // 'name', 'id', 'ready'
+        this.alarmsFilter = this.loadSetting('alarms-filter');
+        this.alarmsSort = this.loadSetting('alarms-sort');
 
         // Game time tracking (for alarm remaining time calculations)
         this.gameTimeEpochMilli = null;  // Current game time from server
@@ -97,12 +119,12 @@ class EntityInspector {
 
         // Packet log state
         this.packetLog = [];               // All logged packets
-        this.packetLogPaused = true; // Paused by default
-        this.packetLogFilter = '';
-        this.packetDirectionFilter = 'all';
+        this.packetLogPaused = this.loadSetting('packet-log-paused');
+        this.packetLogFilter = this.loadSetting('packet-log-filter');
+        this.packetDirectionFilter = this.loadSetting('packet-direction-filter');
         this.selectedPacket = null;
         this.maxPacketLogSize = 1000;
-        this.packetLogCollapsed = false;
+        this.packetLogCollapsed = this.loadSetting('packet-log-collapsed');
         this.packetLogFullscreen = false;
 
         // Settings state
@@ -130,7 +152,7 @@ class EntityInspector {
         this.liveChangesPauseIcon = document.getElementById('live-changes-pause-icon');
         this.liveChangesPauseLabel = document.getElementById('live-changes-pause-label');
         this.liveChangesClearBtn = document.getElementById('live-changes-clear-btn');
-        this.liveChangesPaused = true; // Paused by default
+        this.liveChangesPaused = this.loadSetting('live-changes-paused');
 
         // Packet log elements
         this.packetLogPanel = document.getElementById('packet-log-panel');
@@ -186,9 +208,9 @@ class EntityInspector {
         this.inspectorPauseBtnHeader = document.getElementById('inspector-pause-btn-header');
         this.inspectorPauseIconHeader = document.getElementById('inspector-pause-icon-header');
 
-        // Panel pause states (paused by default)
-        this.entityListPaused = true;
-        this.inspectorPaused = true;
+        // Panel pause states
+        this.entityListPaused = this.loadSetting('entity-list-paused');
+        this.inspectorPaused = this.loadSetting('inspector-paused');
 
         // Tab elements
         this.tabBtns = document.querySelectorAll('.tab-btn');
@@ -262,6 +284,81 @@ class EntityInspector {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // SETTINGS PERSISTENCE
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Load a setting from localStorage with fallback to default.
+     * @param {string} key - Setting key (without prefix)
+     * @returns {*} The stored value or default
+     */
+    loadSetting(key) {
+        const stored = localStorage.getItem(STORAGE_PREFIX + key);
+        if (stored === null) return PERSISTED_SETTINGS[key];
+        try {
+            return JSON.parse(stored);
+        } catch {
+            return stored;
+        }
+    }
+
+    /**
+     * Save a setting to localStorage.
+     * @param {string} key - Setting key (without prefix)
+     * @param {*} value - Value to store
+     */
+    saveSetting(key, value) {
+        localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+    }
+
+    /**
+     * Clear all session-specific data (caches, selections, server state).
+     * Called on disconnect to prevent stale data when reconnecting.
+     */
+    clearSessionData() {
+        // Clear entity data
+        this.entities.clear();
+        this.selectedEntityId = null;
+
+        // Clear caches
+        this.sensorCache.clear();
+        this.pendingRoleFetches.clear();
+        this.alarmHistory.clear();
+        this.globalChanges = [];
+        this.packetLog = [];
+
+        // Clear asset browser state
+        this.assetCategories = [];
+        this.assetDetail = null;
+        this.sessionHistory = [];
+        this.searchResults = {};
+        this.expandedCategories.clear();
+        this.selectedCategory = null;
+        this.selectedAsset = null;
+        this.selectedPacket = null;
+
+        // Clear server state
+        this.gameTimeEpochMilli = null;
+        this.gameTimeReceivedAt = null;
+        this.gameTimeRate = null;
+        this.serverVersion = null;
+        this.serverConfig = null;
+        this.hytalorEnabled = false;
+
+        // Re-render panels to show empty state
+        this.renderEntityList();
+        this.renderInspector();
+        this.renderPacketLog();
+        if (this.activeTab === 'assets') {
+            this.renderAssetTree();
+            this.renderAssetDetail();
+        }
+        if (this.activeTab === 'alarms') {
+            this.renderAlarmsPanel();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // WEBSOCKET CONNECTION
     // ═══════════════════════════════════════════════════════════════
 
@@ -289,6 +386,8 @@ class EntityInspector {
                     clearInterval(this.alarmsUpdateInterval);
                     this.alarmsUpdateInterval = null;
                 }
+                // Clear all session data to prevent stale data on reconnect
+                this.clearSessionData();
                 this.scheduleReconnect();
             };
 
@@ -652,6 +751,7 @@ class EntityInspector {
             this.packetFilterInput.addEventListener('input', (e) => {
                 e.stopPropagation();
                 this.packetLogFilter = e.target.value.trim().toLowerCase();
+                this.saveSetting('packet-log-filter', this.packetLogFilter);
                 this.renderPacketLog();
             });
 
@@ -666,6 +766,7 @@ class EntityInspector {
             this.packetDirectionSelect.addEventListener('change', (e) => {
                 e.stopPropagation();
                 this.packetDirectionFilter = e.target.value;
+                this.saveSetting('packet-direction-filter', this.packetDirectionFilter);
                 this.renderPacketLog();
             });
 
@@ -677,6 +778,7 @@ class EntityInspector {
 
     togglePacketLogPanel() {
         this.packetLogCollapsed = !this.packetLogCollapsed;
+        this.saveSetting('packet-log-collapsed', this.packetLogCollapsed);
         this.packetLogPanel.classList.toggle('collapsed', this.packetLogCollapsed);
     }
 
@@ -1314,17 +1416,41 @@ class EntityInspector {
     }
 
     initializePauseState() {
-        // Set initial UI state for all pause buttons (all paused by default)
+        // Set initial UI state for all pause buttons
         this.updateEntityListPauseUI();
         this.updateInspectorPauseUI();
         this.updatePacketLogPauseUI();
         this.updateLiveChangesPauseUI();
         this.updateGlobalPauseUI();
         this.updateExpandableStates();
+
+        // Restore persisted input values
+        if (this.searchInput) this.searchInput.value = this.filter;
+        if (this.componentFilterInput) this.componentFilterInput.value = this.componentFilter;
+        if (this.packetFilterInput) this.packetFilterInput.value = this.packetLogFilter;
+        if (this.packetDirectionSelect) this.packetDirectionSelect.value = this.packetDirectionFilter;
+        if (this.assetFilterInput) this.assetFilterInput.value = this.assetFilter;
+        if (this.alarmsFilterInput) this.alarmsFilterInput.value = this.alarmsFilter;
+
+        // Restore alarms sort button state
+        if (this.alarmsSortBtns) {
+            this.alarmsSortBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sort === this.alarmsSort);
+            });
+        }
+
+        // Restore packet log collapsed state
+        if (this.packetLogPanel && this.packetLogCollapsed) {
+            this.packetLogPanel.classList.add('collapsed');
+        }
+
+        // Restore active tab
+        this.switchTab(this.activeTab);
     }
 
     toggleEntityListPause() {
         this.entityListPaused = !this.entityListPaused;
+        this.saveSetting('entity-list-paused', this.entityListPaused);
         this.updateEntityListPauseUI();
         this.updateGlobalPauseUI();
 
@@ -1339,6 +1465,7 @@ class EntityInspector {
 
     toggleInspectorPause() {
         this.inspectorPaused = !this.inspectorPaused;
+        this.saveSetting('inspector-paused', this.inspectorPaused);
         this.updateInspectorPauseUI();
         this.updateExpandableStates();
         this.updateGlobalPauseUI();
@@ -1353,6 +1480,7 @@ class EntityInspector {
 
     togglePacketLogPause() {
         this.packetLogPaused = !this.packetLogPaused;
+        this.saveSetting('packet-log-paused', this.packetLogPaused);
         this.updatePacketLogPauseUI();
         this.updateGlobalPauseUI();
 
@@ -1373,6 +1501,12 @@ class EntityInspector {
         this.inspectorPaused = anyRunning;
         this.packetLogPaused = anyRunning;
         this.liveChangesPaused = anyRunning;
+
+        // Save all pause states
+        this.saveSetting('entity-list-paused', this.entityListPaused);
+        this.saveSetting('inspector-paused', this.inspectorPaused);
+        this.saveSetting('packet-log-paused', this.packetLogPaused);
+        this.saveSetting('live-changes-paused', this.liveChangesPaused);
 
         this.updateEntityListPauseUI();
         this.updateInspectorPauseUI();
@@ -2212,14 +2346,26 @@ class EntityInspector {
     }
 
     /**
-     * Show version mismatch warning.
+     * Show version mismatch warning with actionable guidance.
      */
     showVersionMismatch() {
         const banner = document.getElementById('version-banner');
         if (banner) {
+            const guiNewer = this.isNewerVersion(GUI_VERSION, this.serverVersion);
+            const releasesUrl = `https://github.com/${GITHUB_REPO}/releases`;
+
+            let hint;
+            if (guiNewer) {
+                // GUI is newer - user needs to update the mod
+                hint = `Update mod to v${GUI_VERSION}: download from <a href="${releasesUrl}" target="_blank">releases</a> and replace the jar in your mods folder`;
+            } else {
+                // Mod is newer - user needs to update the GUI
+                hint = `Update GUI: run <code>update.ps1</code> (Win) or <code>update.sh</code> (Linux/Mac), or <a href="${releasesUrl}" target="_blank">download manually</a>`;
+            }
+
             banner.innerHTML = `
-                <span class="version-warning">⚠️ Version mismatch: GUI v${GUI_VERSION} / Mod v${this.serverVersion}</span>
-                <span class="version-hint">Update both to the same version for best compatibility</span>
+                <span class="version-warning">⚠ Version mismatch: GUI v${GUI_VERSION} / Mod v${this.serverVersion}</span>
+                <span class="version-hint">${hint}</span>
             `;
             banner.classList.add('visible', 'mismatch');
         }
@@ -2876,6 +3022,7 @@ class EntityInspector {
 
     toggleLiveChangesPause() {
         this.liveChangesPaused = !this.liveChangesPaused;
+        this.saveSetting('live-changes-paused', this.liveChangesPaused);
         this.updateLiveChangesPauseUI();
         this.updateGlobalPauseUI();
 
@@ -3020,12 +3167,14 @@ class EntityInspector {
         // Entity search/filter
         this.searchInput.addEventListener('input', (e) => {
             this.filter = e.target.value.trim();
+            this.saveSetting('filter', this.filter);
             this.renderEntityList();
         });
 
         // Component filter
         this.componentFilterInput.addEventListener('input', (e) => {
             this.componentFilter = e.target.value.trim().toLowerCase();
+            this.saveSetting('component-filter', this.componentFilter);
             this.renderInspector();
         });
 
@@ -3203,6 +3352,7 @@ class EntityInspector {
         if (this.alarmsFilterInput) {
             this.alarmsFilterInput.addEventListener('input', (e) => {
                 this.alarmsFilter = e.target.value.trim().toLowerCase();
+                this.saveSetting('alarms-filter', this.alarmsFilter);
                 this.renderAlarmsPanel();
             });
         }
@@ -3212,6 +3362,7 @@ class EntityInspector {
             this.alarmsSortBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     this.alarmsSort = btn.dataset.sort;
+                    this.saveSetting('alarms-sort', this.alarmsSort);
                     // Update active state
                     this.alarmsSortBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
@@ -3234,6 +3385,7 @@ class EntityInspector {
 
     switchTab(tabName) {
         this.activeTab = tabName;
+        this.saveSetting('active-tab', tabName);
 
         // Update tab buttons
         this.tabBtns.forEach(btn => {
@@ -3284,6 +3436,7 @@ class EntityInspector {
             let searchTimeout = null;
             this.assetFilterInput.addEventListener('input', (e) => {
                 this.assetFilter = e.target.value.trim().toLowerCase();
+                this.saveSetting('asset-filter', this.assetFilter);
 
                 // Debounce server search
                 if (searchTimeout) clearTimeout(searchTimeout);
