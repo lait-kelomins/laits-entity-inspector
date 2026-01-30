@@ -426,13 +426,14 @@ public class InspectorCore implements DataTransportListener {
             return null;
         }
 
-        // Return cached entities as a snapshot with current game time
+        // Return cached entities as a snapshot with current game time and server version
         return WorldSnapshot.builder()
                 .worldId(world.getName())
                 .worldName(world.getName())
                 .entities(new ArrayList<>(cache.getAllEntities()))
                 .gameTimeEpochMilli(getCurrentGameTimeEpochMilli())
                 .gameTimeRate(getGameTimeRate())
+                .serverVersion(com.laits.inspector.LaitsInspectorPlugin.VERSION)
                 .build();
     }
 

@@ -17,6 +17,7 @@ public final class WorldSnapshot {
     private final int totalEntities;
     private final Long gameTimeEpochMilli;
     private final Double gameTimeRate;  // Game seconds per real second (e.g., 72 = 72x speed)
+    private final String serverVersion;  // Mod version for compatibility checking
 
     private WorldSnapshot(Builder builder) {
         this.worldId = builder.worldId;
@@ -28,6 +29,7 @@ public final class WorldSnapshot {
         this.totalEntities = this.entities.size();
         this.gameTimeEpochMilli = builder.gameTimeEpochMilli;
         this.gameTimeRate = builder.gameTimeRate;
+        this.serverVersion = builder.serverVersion;
     }
 
     public String getWorldId() {
@@ -56,6 +58,10 @@ public final class WorldSnapshot {
 
     public Double getGameTimeRate() {
         return gameTimeRate;
+    }
+
+    public String getServerVersion() {
+        return serverVersion;
     }
 
     @Override
@@ -91,6 +97,7 @@ public final class WorldSnapshot {
         private long timestamp;
         private Long gameTimeEpochMilli;
         private Double gameTimeRate;
+        private String serverVersion;
 
         public Builder worldId(String worldId) {
             this.worldId = worldId;
@@ -124,6 +131,11 @@ public final class WorldSnapshot {
 
         public Builder gameTimeRate(Double gameTimeRate) {
             this.gameTimeRate = gameTimeRate;
+            return this;
+        }
+
+        public Builder serverVersion(String serverVersion) {
+            this.serverVersion = serverVersion;
             return this;
         }
 

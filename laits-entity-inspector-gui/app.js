@@ -3,6 +3,10 @@
  * ASCII/Terminal aesthetic debugging tool for Hytale
  */
 
+// GUI Version - must match server mod version for compatibility
+const GUI_VERSION = '0.0.6';
+const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
+
 /**
  * Escape HTML to prevent XSS attacks from malicious entity/component data.
  * Malicious plugins could set entity names to "<script>..." or similar.
@@ -62,6 +66,11 @@ class EntityInspector {
         // Alarm debug tracking - stores previous epochMilli values to detect changes
         // Map<entityId, Map<alarmName, { epochMilli, lastChanged }>>
         this.alarmHistory = new Map();
+
+        // Version tracking
+        this.serverVersion = null;          // Version received from mod
+        this.latestRelease = null;          // Latest release from GitHub
+        this.updateCheckDone = false;       // Whether we've checked for updates
 
         // Global changed components tracking (across all entities)
         this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
@@ -424,6 +433,17 @@ class EntityInspector {
         }
         if (data.gameTimeRate) {
             this.gameTimeRate = data.gameTimeRate;
+        }
+
+        // Store server version and check compatibility
+        if (data.serverVersion) {
+            this.serverVersion = data.serverVersion;
+            this.checkVersionCompatibility();
+        }
+
+        // Check for updates (only once per session)
+        if (!this.updateCheckDone) {
+            this.checkForUpdates();
         }
 
         if (data.entities && Array.isArray(data.entities)) {
@@ -2123,6 +2143,116 @@ class EntityInspector {
             return `${minutes}m ${seconds % 60}s`;
         } else {
             return `${seconds}s`;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // VERSION & UPDATE CHECKING
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Check if GUI version matches server version.
+     */
+    checkVersionCompatibility() {
+        if (!this.serverVersion) return;
+
+        const guiMajorMinor = GUI_VERSION.split('.').slice(0, 2).join('.');
+        const serverMajorMinor = this.serverVersion.split('.').slice(0, 2).join('.');
+
+        if (guiMajorMinor !== serverMajorMinor) {
+            this.showVersionMismatch();
+        }
+        this.updateVersionDisplay();
+    }
+
+    /**
+     * Check GitHub for newer releases.
+     */
+    async checkForUpdates() {
+        this.updateCheckDone = true;
+
+        try {
+            const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+            if (!response.ok) return;
+
+            const release = await response.json();
+            this.latestRelease = {
+                version: release.tag_name.replace(/^v/, ''),
+                url: release.html_url,
+                name: release.name,
+                publishedAt: release.published_at
+            };
+
+            // Compare with current version
+            if (this.isNewerVersion(this.latestRelease.version, GUI_VERSION)) {
+                this.showUpdateAvailable();
+            }
+
+            this.updateVersionDisplay();
+        } catch (err) {
+            console.log('Could not check for updates:', err.message);
+        }
+    }
+
+    /**
+     * Compare version strings (semver-like).
+     * Returns true if v1 > v2.
+     */
+    isNewerVersion(v1, v2) {
+        const parts1 = v1.split('.').map(Number);
+        const parts2 = v2.split('.').map(Number);
+
+        for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+            const p1 = parts1[i] || 0;
+            const p2 = parts2[i] || 0;
+            if (p1 > p2) return true;
+            if (p1 < p2) return false;
+        }
+        return false;
+    }
+
+    /**
+     * Show version mismatch warning.
+     */
+    showVersionMismatch() {
+        const banner = document.getElementById('version-banner');
+        if (banner) {
+            banner.innerHTML = `
+                <span class="version-warning">⚠️ Version mismatch: GUI v${GUI_VERSION} / Mod v${this.serverVersion}</span>
+                <span class="version-hint">Update both to the same version for best compatibility</span>
+            `;
+            banner.classList.add('visible', 'mismatch');
+        }
+    }
+
+    /**
+     * Show update available notification.
+     */
+    showUpdateAvailable() {
+        const banner = document.getElementById('version-banner');
+        if (banner && !banner.classList.contains('mismatch')) {
+            banner.innerHTML = `
+                <span class="version-update">🔄 Update available: v${this.latestRelease.version}</span>
+                <a href="${this.latestRelease.url}" target="_blank" class="update-link">Download</a>
+            `;
+            banner.classList.add('visible', 'update');
+        }
+    }
+
+    /**
+     * Update the version display in footer.
+     */
+    updateVersionDisplay() {
+        const versionEl = document.getElementById('version-info');
+        if (versionEl) {
+            let html = `GUI v${GUI_VERSION}`;
+            if (this.serverVersion) {
+                html += ` / Mod v${this.serverVersion}`;
+            }
+            if (this.latestRelease && this.isNewerVersion(this.latestRelease.version, GUI_VERSION)) {
+                html += ` <span class="update-hint">(v${this.latestRelease.version} available)</span>`;
+            }
+            versionEl.innerHTML = html;
         }
     }
 

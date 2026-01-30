@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class LaitsInspectorPlugin extends JavaPlugin {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final String VERSION = "0.0.5";
+    public static final String VERSION = "0.0.6";
 
     private static LaitsInspectorPlugin INSTANCE;
 
