@@ -1,8 +1,7 @@
 package com.laits.inspector.transport;
 
 import com.laits.inspector.config.InspectorConfig;
-import com.laits.inspector.data.EntitySnapshot;
-import com.laits.inspector.data.WorldSnapshot;
+import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
 
 import java.util.List;
@@ -186,6 +185,83 @@ public interface DataTransportListener {
      * Get session patch history.
      */
     default List<HistoryEntry> getSessionHistory() {
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERY CALLBACKS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * List live entities with filtering.
+     *
+     * @param filter Entity type filter: "npc", "player", "item", "all"
+     * @param search Optional name/role search string
+     * @param limit Maximum results
+     * @param offset Pagination offset
+     * @return List of entity summaries
+     */
+    default List<EntitySummary> onRequestEntityList(String filter, String search, int limit, int offset) {
+        return null;
+    }
+
+    /**
+     * Get total count of entities matching filter.
+     */
+    default int getEntityCount(String filter) {
+        return 0;
+    }
+
+    /**
+     * Get full entity detail.
+     *
+     * @param entityId The entity ID
+     * @return Full entity snapshot
+     */
+    default EntitySnapshot onRequestEntityDetail(long entityId) {
+        return null;
+    }
+
+    /**
+     * Get timer state for an entity.
+     *
+     * @param entityId The entity ID
+     * @return List of timer info
+     */
+    default List<TimerInfo> onRequestEntityTimers(long entityId) {
+        return null;
+    }
+
+    /**
+     * Get alarm state for an entity.
+     *
+     * @param entityId The entity ID
+     * @return Map of alarm name to info
+     */
+    default Map<String, AlarmInfo> onRequestEntityAlarms(long entityId) {
+        return null;
+    }
+
+    /**
+     * Find entities by timer state.
+     *
+     * @param state Timer state filter: "RUNNING", "PAUSED", "STOPPED", or null
+     * @param limit Maximum results
+     * @return List of entity summaries with matching timers
+     */
+    default List<EntitySummary> onRequestFindByTimer(String state, int limit) {
+        return null;
+    }
+
+    /**
+     * Find entities by alarm.
+     *
+     * @param alarmName Alarm name to search for (or null for any)
+     * @param state Alarm state filter: "SET", "PASSED", "UNSET", or null
+     * @param limit Maximum results
+     * @return List of entity summaries with matching alarms
+     */
+    default List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
         return null;
     }
 }

@@ -50,6 +50,7 @@
         <div class="tab-bar">
             <button class="tab-btn active" data-tab="entities">[E] ENTITIES</button>
             <button class="tab-btn" data-tab="assets">[A] ASSETS</button>
+            <button class="tab-btn" data-tab="alarms">[⏰] ALARMS</button>
         </div>
 
 
@@ -173,6 +174,26 @@
             </div>
         </div><!-- /tab-assets -->
 
+        <!-- Tab Content: Alarms -->
+        <div class="tab-content" id="tab-alarms">
+            <section class="panel alarms-panel-section">
+                <div class="panel-header">
+                    <span class="panel-title">┌─[ WORLD ALARMS ]────────────────────────┐</span>
+                    <button class="control-btn" id="alarms-refresh-btn" title="Refresh Alarms">↻ REFRESH</button>
+                </div>
+                <div class="alarms-panel" id="alarms-panel">
+                    <div class="empty-state">
+                        <pre>
+    ╔════════════════════════════════╗
+    ║  NO ACTIVE ALARMS IN WORLD    ║
+    ╚════════════════════════════════╝
+                        </pre>
+                    </div>
+                </div>
+                <div class="panel-footer">└─────────────────────────────────────────┘</div>
+            </section>
+        </div><!-- /tab-alarms -->
+
         <!-- Packet Log Panel (collapsible bottom panel) -->
         <section class="panel packet-log-panel" id="packet-log-panel">
             <div class="packet-log-header" id="packet-log-header">
@@ -232,11 +253,11 @@
             <div class="footer-left">
                 <span class="made-by">Made by Lait</span>
                 <span class="footer-separator">|</span>
-                <span class="key">[H]</span> Header
+                <span class="key">[E]</span> Entities
+                <span class="key">[A]</span> Assets
+                <span class="key">[W]</span> Alarms
                 <span class="key">[P]</span> Packets
-                <span class="key">[F]</span> Fullscreen
                 <span class="key">[S]</span> Settings
-                <span class="key">[R]</span> Reconnect
             </div>
             <div class="footer-center">
                 <button class="pause-btn active" id="global-pause-btn" title="Pause/Resume All Updates (Space)">

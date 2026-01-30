@@ -68,5 +68,25 @@ public enum MessageType {
     // ═══════════════════════════════════════════════════════════════
     // FEATURE DETECTION (Server → Client)
     // ═══════════════════════════════════════════════════════════════
-    FEATURE_INFO               // Feature flags (hytalorEnabled, etc.)
+    FEATURE_INFO,              // Feature flags (hytalorEnabled, etc.)
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERIES (Client → Server)
+    // ═══════════════════════════════════════════════════════════════
+    REQUEST_ENTITY_LIST,       // Request list of live entities with filtering
+    REQUEST_ENTITY_DETAIL,     // Request full component data for one entity
+    REQUEST_ENTITY_TIMERS,     // Request formatted timer state for entity
+    REQUEST_ENTITY_ALARMS,     // Request alarm state for entity
+    REQUEST_FIND_BY_TIMER,     // Find entities by timer state
+    REQUEST_FIND_BY_ALARM,     // Find entities by alarm state
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERIES (Server → Client)
+    // ═══════════════════════════════════════════════════════════════
+    ENTITY_LIST,               // List of entity summaries
+    ENTITY_DETAIL,             // Full entity component data
+    ENTITY_TIMERS,             // Formatted timer state
+    ENTITY_ALARMS,             // Formatted alarm state
+    TIMER_SEARCH_RESULTS,      // Entities matching timer criteria
+    ALARM_SEARCH_RESULTS       // Entities matching alarm criteria
 }

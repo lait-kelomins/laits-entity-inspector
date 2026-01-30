@@ -2600,6 +2600,196 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ALARMS & SENSORS (Inspector Sections)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Alarm Section in Inspector */
+.alarm-section .component-name {
+    color: var(--warning);
+}
+
+.alarm-row {
+    display: flex;
+    gap: 16px;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    align-items: center;
+}
+
+.alarm-name {
+    flex: 1;
+    color: var(--text-highlight);
+}
+
+.alarm-state {
+    width: 60px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.alarm-remaining {
+    width: 100px;
+    text-align: right;
+    color: var(--text-dim);
+}
+
+.alarm-row.set .alarm-state {
+    color: var(--warning);
+}
+
+.alarm-row.passed .alarm-state {
+    color: var(--text-dim);
+}
+
+.alarm-row.unset .alarm-state {
+    color: var(--text-dim);
+    opacity: 0.5;
+}
+
+.alarm-row.expandable-alarm {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.alarm-row.expandable-alarm:hover {
+    background: var(--gray-dark);
+}
+
+.alarm-row.expandable-alarm .alarm-remaining {
+    color: var(--info);
+}
+
+.alarm-row.expandable-alarm.loading {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Sensor Section in Inspector */
+.sensor-section .component-name {
+    color: var(--accent);
+}
+
+.sensor-row {
+    display: flex;
+    gap: 16px;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.sensor-name {
+    color: var(--info);
+    min-width: 150px;
+}
+
+.sensor-params {
+    color: var(--text-dim);
+    flex: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL ALARMS PANEL (Tab)
+   ═══════════════════════════════════════════════════════════════ */
+
+.alarms-panel-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin: 8px;
+}
+
+.alarms-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    background-image: var(--dither-1);
+}
+
+.alarms-panel-content {
+    padding: 4px;
+}
+
+.alarms-header {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--warning);
+    padding: 8px 12px;
+    border-bottom: 1px dashed var(--gray);
+    margin-bottom: 12px;
+}
+
+.alarm-entity {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    transition: all 0.15s;
+}
+
+.alarm-entity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    margin: -8px -12px 8px -12px;
+    background: var(--darker);
+    border-bottom: 1px solid var(--gray);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.alarm-entity-header:hover {
+    background: var(--accent-dim);
+}
+
+.entity-link-hint {
+    color: var(--text-dim);
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.alarm-entity-header:hover .entity-link-hint {
+    opacity: 1;
+}
+
+.alarm-entity-header .entity-name {
+    color: var(--text-highlight);
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.alarm-entity-header .entity-id {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.alarm-indent {
+    color: var(--text-dim);
+    margin-right: 4px;
+    font-size: 11px;
+}
+
+.sensor-summary {
+    padding: 4px 8px;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sensor-icon {
+    font-size: 12px;
+}
+
+.sensor-list {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════════════════ */
 

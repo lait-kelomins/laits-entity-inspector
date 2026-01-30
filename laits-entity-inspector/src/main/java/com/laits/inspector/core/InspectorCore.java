@@ -5,11 +5,7 @@ import com.hypixel.hytale.server.core.universe.world.World;
 import com.laits.inspector.cache.InMemoryCache;
 import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.config.InspectorConfig;
-import com.laits.inspector.data.ComponentData;
-import com.laits.inspector.data.EntitySnapshot;
-import com.laits.inspector.data.PacketLogEntry;
-import com.laits.inspector.data.PositionUpdate;
-import com.laits.inspector.data.WorldSnapshot;
+import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
 import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
@@ -49,6 +45,9 @@ public class InspectorCore implements DataTransportListener {
     private final PatchManager patchManager;
     private final SessionHistoryTracker historyTracker;
 
+    // Entity query service
+    private final EntityQueryService entityQueryService;
+
     public InspectorCore(InspectorConfig config) {
         this(config, new InMemoryCache());
     }
@@ -64,6 +63,9 @@ public class InspectorCore implements DataTransportListener {
         this.hytalorDetector = new HytalorDetector();
         this.patchManager = new PatchManager();
         this.historyTracker = new SessionHistoryTracker();
+
+        // Initialize entity query service
+        this.entityQueryService = new EntityQueryService(this.cache);
     }
 
     /**
@@ -603,5 +605,65 @@ public class InspectorCore implements DataTransportListener {
 
     public SessionHistoryTracker getHistoryTracker() {
         return historyTracker;
+    }
+
+    public EntityQueryService getEntityQueryService() {
+        return entityQueryService;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERY IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public List<EntitySummary> onRequestEntityList(String filter, String search, int limit, int offset) {
+        return entityQueryService.listEntities(filter, search, limit, offset);
+    }
+
+    @Override
+    public int getEntityCount(String filter) {
+        // Count all entities matching the filter
+        String normalizedFilter = filter != null ? filter.toLowerCase() : "npc";
+        if ("all".equals(normalizedFilter)) {
+            return cache.getEntityCount();
+        }
+
+        return (int) cache.getAllEntities().stream()
+            .filter(e -> {
+                String type = e.getEntityType();
+                if (type == null) return false;
+                return switch (normalizedFilter) {
+                    case "npc" -> "NPC".equalsIgnoreCase(type);
+                    case "player" -> "PLAYER".equalsIgnoreCase(type);
+                    case "item" -> "ITEM".equalsIgnoreCase(type);
+                    default -> true;
+                };
+            })
+            .count();
+    }
+
+    @Override
+    public EntitySnapshot onRequestEntityDetail(long entityId) {
+        return entityQueryService.getEntityDetail(entityId);
+    }
+
+    @Override
+    public List<TimerInfo> onRequestEntityTimers(long entityId) {
+        return entityQueryService.getTimers(entityId);
+    }
+
+    @Override
+    public Map<String, AlarmInfo> onRequestEntityAlarms(long entityId) {
+        return entityQueryService.getAlarms(entityId);
+    }
+
+    @Override
+    public List<EntitySummary> onRequestFindByTimer(String state, int limit) {
+        return entityQueryService.findByTimerState(state, limit);
+    }
+
+    @Override
+    public List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
+        return entityQueryService.findByAlarm(alarmName, state, limit);
     }
 }

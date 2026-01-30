@@ -5,10 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.laits.inspector.config.InspectorConfig;
-import com.laits.inspector.data.EntitySnapshot;
-import com.laits.inspector.data.PacketLogEntry;
-import com.laits.inspector.data.PositionUpdate;
-import com.laits.inspector.data.WorldSnapshot;
+import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
 import com.laits.inspector.protocol.MessageType;
 import com.laits.inspector.protocol.OutgoingMessage;
@@ -531,6 +528,110 @@ public class WebSocketTransport implements DataTransport {
             case REQUEST_LIST_DRAFTS -> {
                 var drafts = listener.listDrafts();
                 session.send(OutgoingMessage.draftsList(drafts != null ? drafts : java.util.Collections.emptyList()).toJson());
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // LIVE ENTITY QUERY MESSAGES
+            // ═══════════════════════════════════════════════════════════════
+
+            case REQUEST_ENTITY_LIST -> {
+                JsonObject data = json.has("data") ? json.getAsJsonObject("data") : new JsonObject();
+                String filter = data.has("filter") ? data.get("filter").getAsString() : "npc";
+                String search = data.has("search") ? data.get("search").getAsString() : null;
+                int limit = data.has("limit") ? data.get("limit").getAsInt() : 50;
+                int offset = data.has("offset") ? data.get("offset").getAsInt() : 0;
+
+                var entities = listener.onRequestEntityList(filter, search, limit, offset);
+                int total = listener.getEntityCount(filter);
+                if (entities != null) {
+                    session.send(OutgoingMessage.entityList(entities, total, filter, offset).toJson());
+                } else {
+                    sendError(session, "Failed to get entity list");
+                }
+            }
+
+            case REQUEST_ENTITY_DETAIL -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for entity detail request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+                EntitySnapshot entity = listener.onRequestEntityDetail(entityId);
+                if (entity != null) {
+                    session.send(OutgoingMessage.entityDetail(entity).toJson());
+                } else {
+                    sendError(session, "Entity not found: " + entityId);
+                }
+            }
+
+            case REQUEST_ENTITY_TIMERS -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for entity timers request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+                var timers = listener.onRequestEntityTimers(entityId);
+                if (timers != null) {
+                    session.send(OutgoingMessage.entityTimers(entityId, timers).toJson());
+                } else {
+                    sendError(session, "Failed to get timers for entity: " + entityId);
+                }
+            }
+
+            case REQUEST_ENTITY_ALARMS -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for entity alarms request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+                var alarms = listener.onRequestEntityAlarms(entityId);
+                if (alarms != null) {
+                    session.send(OutgoingMessage.entityAlarms(entityId, alarms).toJson());
+                } else {
+                    sendError(session, "Failed to get alarms for entity: " + entityId);
+                }
+            }
+
+            case REQUEST_FIND_BY_TIMER -> {
+                JsonObject data = json.has("data") ? json.getAsJsonObject("data") : new JsonObject();
+                String state = data.has("state") ? data.get("state").getAsString() : null;
+                int limit = data.has("limit") ? data.get("limit").getAsInt() : 20;
+
+                var entities = listener.onRequestFindByTimer(state, limit);
+                if (entities != null) {
+                    session.send(OutgoingMessage.timerSearchResults(state, entities).toJson());
+                } else {
+                    sendError(session, "Failed to find entities by timer");
+                }
+            }
+
+            case REQUEST_FIND_BY_ALARM -> {
+                JsonObject data = json.has("data") ? json.getAsJsonObject("data") : new JsonObject();
+                String alarmName = data.has("alarmName") ? data.get("alarmName").getAsString() : null;
+                String state = data.has("state") ? data.get("state").getAsString() : null;
+                int limit = data.has("limit") ? data.get("limit").getAsInt() : 20;
+
+                var entities = listener.onRequestFindByAlarm(alarmName, state, limit);
+                if (entities != null) {
+                    session.send(OutgoingMessage.alarmSearchResults(alarmName, state, entities).toJson());
+                } else {
+                    sendError(session, "Failed to find entities by alarm");
+                }
             }
 
             default -> sendError(session, "Unsupported message type: " + type);

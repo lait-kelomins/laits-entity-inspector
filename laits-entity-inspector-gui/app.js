@@ -45,6 +45,10 @@ class EntityInspector {
         this.sessionHistory = [];
         this.searchResults = {}; // categoryId -> matching assets
 
+        // Sensor cache for Role assets (rolePath → { Sensors: {...} })
+        this.sensorCache = new Map();
+        this.pendingRoleFetches = new Set();
+
         // Global changed components tracking (across all entities)
         this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
         this.chipRetentionMs = 8000;
@@ -167,6 +171,9 @@ class EntityInspector {
         this.tabBtns = document.querySelectorAll('.tab-btn');
         this.tabEntities = document.getElementById('tab-entities');
         this.tabAssets = document.getElementById('tab-assets');
+        this.tabAlarms = document.getElementById('tab-alarms');
+        this.alarmsPanel = document.getElementById('alarms-panel');
+        this.alarmsRefreshBtn = document.getElementById('alarms-refresh-btn');
 
         // Asset browser elements
         this.assetTreeEl = document.getElementById('asset-tree');
@@ -477,6 +484,9 @@ class EntityInspector {
         if (this.selectedEntityId === entity.entityId && !this.inspectorPaused) {
             this.renderInspector();
         }
+
+        // Note: We don't auto-refresh alarms panel on every update anymore
+        // as it causes click interaction issues. User can switch tabs to refresh.
     }
 
     handlePositionBatch(positions) {
@@ -1460,6 +1470,22 @@ class EntityInspector {
             </div>
         `;
 
+        // Render alarms section (if entity has alarms)
+        const alarms = this.extractAlarms(entity);
+        html += this.renderAlarmsSection(alarms);
+
+        // Render sensors section (if we have cached role data)
+        const rolePath = this.extractRolePath(entity);
+        if (rolePath) {
+            const roleData = this.sensorCache.get(rolePath);
+            if (roleData?.Sensors) {
+                html += this.renderSensorsSection(roleData.Sensors);
+            } else if (!this.pendingRoleFetches.has(rolePath)) {
+                // Trigger async fetch for role data
+                this.fetchSensorsForRole(rolePath);
+            }
+        }
+
         // Render components (filtered)
         if (entity.components && Object.keys(entity.components).length > 0) {
             const filteredComponents = Object.entries(entity.components)
@@ -1520,6 +1546,27 @@ class EntityInspector {
                     this.requestExpand(this.selectedEntityId, path);
                     el.classList.add('loading');
                     el.querySelector('.expand-icon').textContent = '...';
+                }
+            });
+        });
+
+        // Add expand handlers for expandable alarms
+        this.inspectorEl.querySelectorAll('.expandable-alarm').forEach(el => {
+            el.addEventListener('click', () => {
+                const path = el.dataset.expandPath;
+                if (path && this.selectedEntityId) {
+                    // Can only expand if paused or pauseOnExpand is enabled
+                    if (!this.inspectorPaused && !this.pauseOnExpand) {
+                        this.log('Enable "Auto-pause on Expand" in settings or pause manually', 'info');
+                        return;
+                    }
+                    // Auto-pause when expanding
+                    if (!this.inspectorPaused && this.pauseOnExpand) {
+                        this.toggleInspectorPause();
+                    }
+                    this.requestExpand(this.selectedEntityId, path);
+                    el.classList.add('loading');
+                    el.querySelector('.alarm-remaining').textContent = 'loading...';
                 }
             });
         });
@@ -1710,6 +1757,364 @@ class EntityInspector {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // ALARMS & SENSORS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Extract alarms from entity snapshot data.
+     * Alarms are stored in InteractionManager.fields.entity.alarmStore.parameters
+     * or in the data/fields structure depending on how the server serializes it.
+     */
+    extractAlarms(entity) {
+        const alarms = {};
+
+        // Try InteractionManager first (most common location)
+        const interactionManager = entity.components?.InteractionManager;
+        let alarmStore = null;
+
+        if (interactionManager) {
+            // Try different paths based on serialization format
+            // Path 1: fields.entity.alarmStore.parameters (MCP inspector format)
+            alarmStore = interactionManager.fields?.entity?.alarmStore?.parameters;
+
+            // Path 2: data.entity.alarmStore.parameters
+            if (!alarmStore) {
+                alarmStore = interactionManager.data?.entity?.alarmStore?.parameters;
+            }
+
+            // Path 3: entity.alarmStore.parameters (direct)
+            if (!alarmStore) {
+                alarmStore = interactionManager.entity?.alarmStore?.parameters;
+            }
+
+            // Path 4: alarmStore.parameters (if entity is flattened)
+            if (!alarmStore) {
+                alarmStore = interactionManager.alarmStore?.parameters;
+            }
+        }
+
+        // Fallback to NPCEntity
+        if (!alarmStore) {
+            const npcEntity = entity.components?.NPCEntity;
+            if (npcEntity) {
+                alarmStore = npcEntity.fields?.entity?.alarmStore?.parameters
+                    || npcEntity.data?.entity?.alarmStore?.parameters
+                    || npcEntity.entity?.alarmStore?.parameters;
+            }
+        }
+
+        if (!alarmStore) return alarms;
+
+        for (const [name, data] of Object.entries(alarmStore)) {
+            if (data._expandable) {
+                // Alarm exists but not expanded - assume SET since it's defined
+                alarms[name] = { state: 'SET', expandable: true };
+            } else {
+                // Expanded alarm data - log for debugging
+                console.log(`[ALARM DEBUG] ${name}:`, JSON.stringify(data, null, 2));
+
+                let state = 'UNSET';
+                let remainingMs = null;
+
+                // Try multiple paths for the alarm instant/trigger time
+                const epochMilli = data.alarmInstant?.epochMilli
+                    || data.instant?.epochMilli
+                    || data.triggerTime?.epochMilli
+                    || data.epochMilli;
+
+                if (epochMilli) {
+                    // Alarm has a trigger time - determine state from time
+                    remainingMs = epochMilli - Date.now();
+                    state = remainingMs > 0 ? 'SET' : 'PASSED';
+                } else {
+                    // No trigger time - check explicit state fields as fallback
+                    if (data.state && typeof data.state === 'string') {
+                        state = data.state.toUpperCase();
+                    } else {
+                        const isSet = data.isSet ?? data.set ?? false;
+                        const hasPassed = data.hasPassed ?? data.passed ?? false;
+                        state = hasPassed ? 'PASSED' : (isSet ? 'SET' : 'UNSET');
+                    }
+                }
+
+                alarms[name] = { state, remainingMs, expanded: true };
+            }
+        }
+        return alarms;
+    }
+
+    /**
+     * Extract the Role path from an entity for sensor lookup.
+     */
+    extractRolePath(entity) {
+        // Try InteractionManager first
+        const interactionManager = entity.components?.InteractionManager;
+        let roleName = interactionManager?.fields?.entity?.roleName
+            || interactionManager?.data?.entity?.roleName;
+
+        // Fallback to NPCEntity
+        if (!roleName) {
+            const npcEntity = entity.components?.NPCEntity;
+            roleName = npcEntity?.fields?.roleName
+                || npcEntity?.data?.roleName
+                || npcEntity?.roleName;
+        }
+
+        if (!roleName) return null;
+
+        // Construct the role path - roles are in NPC/Roles/{RoleName}
+        return `NPC/Roles/${roleName}`;
+    }
+
+    /**
+     * Fetch sensors for a role by requesting the Role asset.
+     */
+    fetchSensorsForRole(rolePath) {
+        if (!rolePath || this.sensorCache.has(rolePath) || this.pendingRoleFetches.has(rolePath)) {
+            return;
+        }
+
+        // Mark as pending to prevent duplicate requests
+        this.pendingRoleFetches.add(rolePath);
+
+        // Role paths like "NPC/Roles/Animals/Sheep" → category "NPC", assetId "Roles/Animals/Sheep"
+        const category = 'NPC';
+        const assetId = rolePath.replace(/^NPC\//, '');
+
+        this.send('REQUEST_ASSET_DETAIL', { category, assetId });
+        this.log(`Fetching sensors for role: ${rolePath}`, 'info');
+    }
+
+    /**
+     * Format milliseconds as human-readable duration.
+     */
+    formatDuration(ms) {
+        if (ms <= 0) return 'expired';
+
+        const seconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+
+        if (hours > 0) {
+            return `${hours}h ${minutes % 60}m`;
+        } else if (minutes > 0) {
+            return `${minutes}m ${seconds % 60}s`;
+        } else {
+            return `${seconds}s`;
+        }
+    }
+
+    /**
+     * Render alarms section for the inspector.
+     */
+    renderAlarmsSection(alarms) {
+        if (!alarms || Object.keys(alarms).length === 0) return '';
+
+        let html = `
+            <div class="alarm-section component-section">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">⏰ ALARMS</span>
+                </div>
+                <div class="component-body">
+        `;
+
+        for (const [name, data] of Object.entries(alarms)) {
+            const stateClass = data.state.toLowerCase();
+            let remaining = '-';
+            let expandableClass = '';
+            let expandPath = '';
+
+            if (data.expandable) {
+                remaining = '[click to expand]';
+                expandableClass = 'expandable-alarm';
+                // Path to expand: components.InteractionManager.fields.entity.alarmStore.parameters.{name}
+                expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
+            } else if (data.remainingMs != null && data.remainingMs > 0) {
+                remaining = this.formatDuration(data.remainingMs);
+            } else if (data.state === 'PASSED') {
+                remaining = 'expired';
+            }
+
+            html += `
+                <div class="alarm-row ${stateClass} ${expandableClass}" ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}>
+                    <span class="alarm-name">${escapeHtml(name)}</span>
+                    <span class="alarm-state">${data.state}</span>
+                    <span class="alarm-remaining">${remaining}</span>
+                </div>
+            `;
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    /**
+     * Render sensors section for the inspector.
+     */
+    renderSensorsSection(sensors) {
+        if (!sensors || Object.keys(sensors).length === 0) return '';
+
+        let html = `
+            <div class="sensor-section component-section">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">📡 SENSORS</span>
+                </div>
+                <div class="component-body">
+        `;
+
+        for (const [name, params] of Object.entries(sensors)) {
+            const paramStr = params && typeof params === 'object'
+                ? Object.keys(params).join(', ')
+                : '-';
+
+            html += `
+                <div class="sensor-row">
+                    <span class="sensor-name">${escapeHtml(name)}</span>
+                    <span class="sensor-params">${escapeHtml(paramStr)}</span>
+                </div>
+            `;
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    /**
+     * Collect all alarms across all entities for the global alarms panel.
+     */
+    collectAllAlarms() {
+        const allAlarms = [];
+
+        for (const [entityId, entity] of this.entities) {
+            const alarms = this.extractAlarms(entity);
+            if (Object.keys(alarms).length === 0) continue;
+
+            const rolePath = this.extractRolePath(entity);
+            const sensors = rolePath ? this.sensorCache.get(rolePath)?.Sensors : null;
+
+            allAlarms.push({
+                entityId,
+                name: entity.modelAssetId || entity.entityType || `Entity #${entityId}`,
+                alarms,
+                sensors: sensors ? Object.keys(sensors) : []
+            });
+        }
+
+        // Sort by soonest alarm first
+        return allAlarms.sort((a, b) => {
+            const aMin = Math.min(...Object.values(a.alarms).map(x => x.remainingMs ?? Infinity));
+            const bMin = Math.min(...Object.values(b.alarms).map(x => x.remainingMs ?? Infinity));
+            return aMin - bMin;
+        });
+    }
+
+    /**
+     * Render the global alarms panel.
+     */
+    renderAlarmsPanel() {
+        if (!this.alarmsPanel) return;
+
+        const allAlarms = this.collectAllAlarms();
+
+        if (allAlarms.length === 0) {
+            this.alarmsPanel.innerHTML = `
+                <div class="empty-state">
+                    <pre>
+    ╔════════════════════════════════╗
+    ║  NO ACTIVE ALARMS IN WORLD    ║
+    ╚════════════════════════════════╝
+                    </pre>
+                </div>
+            `;
+            return;
+        }
+
+        let html = `<div class="alarms-panel-content">`;
+        html += `<div class="alarms-header">🔔 WORLD ALARMS (${allAlarms.length} entities)</div>`;
+
+        for (const entry of allAlarms) {
+            html += `
+                <div class="alarm-entity" data-entity-id="${entry.entityId}">
+                    <div class="alarm-entity-header" data-entity-id="${entry.entityId}">
+                        <span class="entity-name">${escapeHtml(entry.name)}</span>
+                        <span class="entity-id">#${entry.entityId}</span>
+                        <span class="entity-link-hint">→ click to inspect</span>
+                    </div>
+            `;
+
+            for (const [name, data] of Object.entries(entry.alarms)) {
+                const stateClass = data.state.toLowerCase();
+                let remaining = '-';
+                let expandableClass = '';
+                let expandPath = '';
+
+                if (data.expandable) {
+                    remaining = '[expand]';
+                    expandableClass = 'expandable-alarm';
+                    expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
+                } else if (data.remainingMs != null && data.remainingMs > 0) {
+                    remaining = this.formatDuration(data.remainingMs);
+                } else if (data.state === 'PASSED') {
+                    remaining = 'expired';
+                }
+
+                html += `
+                    <div class="alarm-row ${stateClass} ${expandableClass}"
+                         data-entity-id="${entry.entityId}"
+                         ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}>
+                        <span class="alarm-indent">├─</span>
+                        <span class="alarm-name">${escapeHtml(name)}</span>
+                        <span class="alarm-state">${data.state}</span>
+                        <span class="alarm-remaining">${remaining}</span>
+                    </div>
+                `;
+            }
+
+            // Show sensors if available
+            if (entry.sensors.length > 0) {
+                html += `
+                    <div class="sensor-summary">
+                        <span class="alarm-indent">└─</span>
+                        <span class="sensor-icon">📡</span>
+                        <span class="sensor-list">${entry.sensors.join(', ')}</span>
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        this.alarmsPanel.innerHTML = html;
+
+        // Add click handlers for expandable alarms (must come before entity click handler)
+        this.alarmsPanel.querySelectorAll('.alarm-row.expandable-alarm').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation(); // Don't trigger entity selection
+                const entityId = parseInt(el.dataset.entityId);
+                const path = el.dataset.expandPath;
+                if (path && entityId) {
+                    this.requestExpand(entityId, path);
+                    el.classList.add('loading');
+                    el.querySelector('.alarm-remaining').textContent = 'loading...';
+                }
+            });
+        });
+
+        // Add click handlers to entity headers to select entity
+        this.alarmsPanel.querySelectorAll('.alarm-entity-header').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const entityId = parseInt(el.dataset.entityId);
+                this.selectEntity(entityId);
+                this.switchTab('entities');
+            });
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // LAZY LOADING (EXPAND)
     // ═══════════════════════════════════════════════════════════════
 
@@ -1760,6 +2165,11 @@ class EntityInspector {
         // Re-render if this entity is selected
         if (this.selectedEntityId === entityId) {
             this.renderInspector();
+        }
+
+        // Also re-render alarms panel if that's the active tab
+        if (this.activeTab === 'alarms') {
+            this.renderAlarmsPanel();
         }
 
         this.log(`Expanded: ${path}`, 'info');
@@ -2264,6 +2674,11 @@ class EntityInspector {
                     // Switch to Entities tab
                     this.switchTab('entities');
                     break;
+
+                case 'w':
+                    // Switch to Alarms/Watch tab
+                    this.switchTab('alarms');
+                    break;
             }
         });
 
@@ -2288,6 +2703,13 @@ class EntityInspector {
                 this.switchTab(btn.dataset.tab);
             });
         });
+
+        // Alarms panel refresh button
+        if (this.alarmsRefreshBtn) {
+            this.alarmsRefreshBtn.addEventListener('click', () => {
+                this.renderAlarmsPanel();
+            });
+        }
     }
 
     switchTab(tabName) {
@@ -2305,10 +2727,18 @@ class EntityInspector {
         if (this.tabAssets) {
             this.tabAssets.classList.toggle('active', tabName === 'assets');
         }
+        if (this.tabAlarms) {
+            this.tabAlarms.classList.toggle('active', tabName === 'alarms');
+        }
 
         // Request asset categories when switching to assets tab
         if (tabName === 'assets' && this.assetCategories.length === 0) {
             this.requestAssetCategories();
+        }
+
+        // Render global alarms panel when switching to alarms tab
+        if (tabName === 'alarms') {
+            this.renderAlarmsPanel();
         }
     }
 
@@ -2420,6 +2850,18 @@ class EntityInspector {
     }
 
     handleAssetDetail(data) {
+        // Cache sensors if this is a Role asset (NPC category with Sensors)
+        if (data.category === 'NPC' && data.content?.Sensors) {
+            const rolePath = `NPC/${data.id}`;
+            this.sensorCache.set(rolePath, data.content);
+            this.pendingRoleFetches.delete(rolePath);
+
+            // Re-render inspector if we have a selected entity (may need to show sensors)
+            if (this.selectedEntityId) {
+                this.renderInspector();
+            }
+        }
+
         this.assetDetail = data;
         this.renderAssetDetail();
     }

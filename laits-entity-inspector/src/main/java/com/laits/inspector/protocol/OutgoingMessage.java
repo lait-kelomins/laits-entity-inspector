@@ -3,13 +3,11 @@ package com.laits.inspector.protocol;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.laits.inspector.config.InspectorConfig;
-import com.laits.inspector.data.EntitySnapshot;
-import com.laits.inspector.data.PacketLogEntry;
-import com.laits.inspector.data.PositionUpdate;
-import com.laits.inspector.data.WorldSnapshot;
+import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Wrapper for outgoing WebSocket messages.
@@ -473,6 +471,127 @@ public class OutgoingMessage {
 
         DraftsListData(List<PatchDraft> drafts) {
             this.drafts = drafts;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERY MESSAGES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Create ENTITY_LIST message with list of entity summaries.
+     */
+    public static OutgoingMessage entityList(List<EntitySummary> entities, int total, String filter, int offset) {
+        return new OutgoingMessage(MessageType.ENTITY_LIST, new EntityListData(entities, total, filter, offset));
+    }
+
+    /**
+     * Create ENTITY_DETAIL message with full entity data.
+     */
+    public static OutgoingMessage entityDetail(EntitySnapshot entity) {
+        return new OutgoingMessage(MessageType.ENTITY_DETAIL, entity);
+    }
+
+    /**
+     * Create ENTITY_TIMERS message with timer state.
+     */
+    public static OutgoingMessage entityTimers(long entityId, List<TimerInfo> timers) {
+        return new OutgoingMessage(MessageType.ENTITY_TIMERS, new EntityTimersData(entityId, timers));
+    }
+
+    /**
+     * Create ENTITY_ALARMS message with alarm state.
+     */
+    public static OutgoingMessage entityAlarms(long entityId, Map<String, AlarmInfo> alarms) {
+        return new OutgoingMessage(MessageType.ENTITY_ALARMS, new EntityAlarmsData(entityId, alarms));
+    }
+
+    /**
+     * Create TIMER_SEARCH_RESULTS message with entities matching timer criteria.
+     */
+    public static OutgoingMessage timerSearchResults(String state, List<EntitySummary> entities) {
+        return new OutgoingMessage(MessageType.TIMER_SEARCH_RESULTS, new TimerSearchData(state, entities));
+    }
+
+    /**
+     * Create ALARM_SEARCH_RESULTS message with entities matching alarm criteria.
+     */
+    public static OutgoingMessage alarmSearchResults(String alarmName, String state, List<EntitySummary> entities) {
+        return new OutgoingMessage(MessageType.ALARM_SEARCH_RESULTS, new AlarmSearchData(alarmName, state, entities));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIVE ENTITY QUERY DATA CLASSES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Data for entity list response.
+     */
+    private static class EntityListData {
+        private final List<EntitySummary> entities;
+        private final int total;
+        private final String filter;
+        private final int offset;
+
+        EntityListData(List<EntitySummary> entities, int total, String filter, int offset) {
+            this.entities = entities;
+            this.total = total;
+            this.filter = filter;
+            this.offset = offset;
+        }
+    }
+
+    /**
+     * Data for entity timers response.
+     */
+    private static class EntityTimersData {
+        private final long entityId;
+        private final List<TimerInfo> timers;
+
+        EntityTimersData(long entityId, List<TimerInfo> timers) {
+            this.entityId = entityId;
+            this.timers = timers;
+        }
+    }
+
+    /**
+     * Data for entity alarms response.
+     */
+    private static class EntityAlarmsData {
+        private final long entityId;
+        private final Map<String, AlarmInfo> alarms;
+
+        EntityAlarmsData(long entityId, Map<String, AlarmInfo> alarms) {
+            this.entityId = entityId;
+            this.alarms = alarms;
+        }
+    }
+
+    /**
+     * Data for timer search results response.
+     */
+    private static class TimerSearchData {
+        private final String state;
+        private final List<EntitySummary> entities;
+
+        TimerSearchData(String state, List<EntitySummary> entities) {
+            this.state = state;
+            this.entities = entities;
+        }
+    }
+
+    /**
+     * Data for alarm search results response.
+     */
+    private static class AlarmSearchData {
+        private final String alarmName;
+        private final String state;
+        private final List<EntitySummary> entities;
+
+        AlarmSearchData(String alarmName, String state, List<EntitySummary> entities) {
+            this.alarmName = alarmName;
+            this.state = state;
+            this.entities = entities;
         }
     }
 }
