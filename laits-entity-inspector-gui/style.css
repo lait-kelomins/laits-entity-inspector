@@ -2608,12 +2608,19 @@ body {
     color: var(--warning);
 }
 
+.alarm-badges-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+}
+
 .alarm-row {
     display: flex;
     gap: 16px;
     padding: 4px 8px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 14px;
     align-items: center;
 }
 
@@ -2665,6 +2672,60 @@ body {
     cursor: wait;
 }
 
+/* Timer Section in Inspector */
+.timer-section .component-name {
+    color: var(--info);
+}
+
+.timer-row {
+    display: flex;
+    gap: 12px;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    align-items: center;
+}
+
+.timer-index {
+    color: var(--text-dim);
+    width: 30px;
+}
+
+.timer-state {
+    width: 70px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.timer-progress {
+    width: 80px;
+    color: var(--text-highlight);
+}
+
+.timer-remaining {
+    width: 80px;
+    text-align: right;
+    color: var(--text-dim);
+}
+
+.timer-repeat {
+    color: var(--accent);
+    font-size: 14px;
+}
+
+.timer-row.running .timer-state {
+    color: var(--success);
+}
+
+.timer-row.paused .timer-state {
+    color: var(--warning);
+}
+
+.timer-row.stopped .timer-state {
+    color: var(--text-dim);
+    opacity: 0.5;
+}
+
 /* Sensor Section in Inspector */
 .sensor-section .component-name {
     color: var(--accent);
@@ -2710,15 +2771,175 @@ body {
     padding: 4px;
 }
 
+/* Alarms toolbar */
+.alarms-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    background: var(--darker);
+    border-bottom: 1px solid var(--gray);
+}
+
+.alarms-toolbar .filter-input {
+    flex: 1;
+    max-width: 200px;
+    padding: 4px 8px;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.alarms-toolbar .filter-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.sort-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sort-label {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-right: 4px;
+}
+
+.sort-btn {
+    padding: 2px 8px;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    color: var(--text-dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.sort-btn:hover {
+    background: var(--gray);
+    color: var(--text);
+}
+
+.sort-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .alarms-header {
     font-size: 14px;
     font-weight: bold;
     color: var(--warning);
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-bottom: 1px dashed var(--gray);
-    margin-bottom: 12px;
+    margin-bottom: 4px;
 }
 
+/* Grid layout for alarms panel */
+.alarms-panel-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 6px;
+    padding: 4px;
+}
+
+.alarms-panel-content .alarms-header {
+    grid-column: 1 / -1;
+}
+
+/* Compact alarm entity card */
+.alarm-entity-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--gray-dark);
+    border: 1px solid var(--darker);
+    border-radius: 3px;
+}
+
+.alarm-entity-compact:hover {
+    background: var(--gray);
+    border-color: var(--gray);
+}
+
+.alarm-entity-compact .entity-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.alarm-entity-compact .entity-info:hover .entity-name {
+    color: var(--accent);
+}
+
+.alarm-entity-compact .entity-name {
+    color: var(--text-highlight);
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.alarm-entity-compact .entity-id {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.alarm-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.alarm-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    cursor: default;
+}
+
+.alarm-badge .badge-time {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.alarm-badge.set {
+    background: rgba(40, 167, 69, 0.15);
+    color: var(--success);
+}
+
+.alarm-badge.passed {
+    background: rgba(40, 167, 69, 0.15);
+    color: var(--success);
+}
+
+.alarm-badge.unset {
+    background: rgba(108, 117, 125, 0.15);
+    color: var(--text-dim);
+}
+
+.alarm-badge.expandable-alarm {
+    cursor: pointer;
+}
+
+.alarm-badge.expandable-alarm:hover {
+    filter: brightness(1.2);
+}
+
+.alarm-badge.loading {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+/* Legacy alarm entity styles (kept for reference) */
 .alarm-entity {
     margin-bottom: 12px;
     padding: 8px 12px;

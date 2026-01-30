@@ -181,6 +181,15 @@
                     <span class="panel-title">┌─[ WORLD ALARMS ]────────────────────────┐</span>
                     <button class="control-btn" id="alarms-refresh-btn" title="Refresh Alarms">↻ REFRESH</button>
                 </div>
+                <div class="alarms-toolbar">
+                    <input type="text" id="alarms-filter" class="filter-input" placeholder="Filter by name or ID...">
+                    <div class="sort-buttons">
+                        <span class="sort-label">Sort:</span>
+                        <button class="sort-btn active" data-sort="name" title="Sort by name">Name</button>
+                        <button class="sort-btn" data-sort="id" title="Sort by ID">ID</button>
+                        <button class="sort-btn" data-sort="ready" title="Sort by SET alarms first">Ready</button>
+                    </div>
+                </div>
                 <div class="alarms-panel" id="alarms-panel">
                     <div class="empty-state">
                         <pre>

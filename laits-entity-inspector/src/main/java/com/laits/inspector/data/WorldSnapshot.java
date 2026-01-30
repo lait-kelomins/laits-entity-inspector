@@ -15,6 +15,7 @@ public final class WorldSnapshot {
     private final List<EntitySnapshot> entities;
     private final long timestamp;
     private final int totalEntities;
+    private final Long gameTimeEpochMilli;
 
     private WorldSnapshot(Builder builder) {
         this.worldId = builder.worldId;
@@ -24,6 +25,7 @@ public final class WorldSnapshot {
                 : Collections.emptyList();
         this.timestamp = builder.timestamp > 0 ? builder.timestamp : System.currentTimeMillis();
         this.totalEntities = this.entities.size();
+        this.gameTimeEpochMilli = builder.gameTimeEpochMilli;
     }
 
     public String getWorldId() {
@@ -44,6 +46,10 @@ public final class WorldSnapshot {
 
     public int getTotalEntities() {
         return totalEntities;
+    }
+
+    public Long getGameTimeEpochMilli() {
+        return gameTimeEpochMilli;
     }
 
     @Override
@@ -77,6 +83,7 @@ public final class WorldSnapshot {
         private String worldName;
         private List<EntitySnapshot> entities = new ArrayList<>();
         private long timestamp;
+        private Long gameTimeEpochMilli;
 
         public Builder worldId(String worldId) {
             this.worldId = worldId;
@@ -100,6 +107,11 @@ public final class WorldSnapshot {
 
         public Builder timestamp(long timestamp) {
             this.timestamp = timestamp;
+            return this;
+        }
+
+        public Builder gameTimeEpochMilli(Long gameTimeEpochMilli) {
+            this.gameTimeEpochMilli = gameTimeEpochMilli;
             return this;
         }
 

@@ -5,6 +5,7 @@ import com.laits.inspector.data.*;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -12,9 +13,25 @@ import java.util.stream.Collectors;
  */
 public class EntityQueryService {
     private final InspectorCache cache;
+    private Supplier<Long> gameTimeSupplier;
 
     public EntityQueryService(InspectorCache cache) {
         this.cache = cache;
+    }
+
+    /**
+     * Set the game time supplier for calculating alarm remaining times.
+     * The supplier should return current game time in epoch milliseconds.
+     */
+    public void setGameTimeSupplier(Supplier<Long> supplier) {
+        this.gameTimeSupplier = supplier;
+    }
+
+    /**
+     * Get current game time in epoch millis, or null if unavailable.
+     */
+    private Long getCurrentGameTimeMillis() {
+        return gameTimeSupplier != null ? gameTimeSupplier.get() : null;
     }
 
     /**
@@ -251,11 +268,10 @@ public class EntityQueryService {
     private Map<String, AlarmInfo> extractAlarms(EntitySnapshot entity) {
         Map<String, AlarmInfo> result = new LinkedHashMap<>();
 
-        // Check NPCEntity for alarms
-        ComponentData npcEntity = entity.getComponent("NPCEntity");
-        if (npcEntity != null) {
-            // Primary location: NPCEntity.entity.alarmStore.parameters.{alarmName}
-            Object entityField = npcEntity.getField("entity");
+        // Primary location: InteractionManager.entity.alarmStore.parameters.{alarmName}
+        ComponentData interactionManager = entity.getComponent("InteractionManager");
+        if (interactionManager != null) {
+            Object entityField = interactionManager.getField("entity");
             if (entityField instanceof Map<?, ?> entityMap) {
                 Object alarmStore = ((Map<?, ?>) entityMap).get("alarmStore");
                 if (alarmStore instanceof Map<?, ?> alarmStoreMap) {
@@ -264,6 +280,29 @@ public class EntityQueryService {
                         for (Map.Entry<?, ?> entry : parametersMap.entrySet()) {
                             String alarmName = entry.getKey().toString();
                             if (entry.getValue() instanceof Map<?, ?> alarmData) {
+                                AlarmInfo info = parseAlarmFromStore(alarmName, (Map<String, Object>) alarmData);
+                                if (info != null) {
+                                    result.put(alarmName, info);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: Check NPCEntity for alarms (older structure)
+        ComponentData npcEntity = entity.getComponent("NPCEntity");
+        if (npcEntity != null) {
+            Object entityField = npcEntity.getField("entity");
+            if (entityField instanceof Map<?, ?> entityMap) {
+                Object alarmStore = ((Map<?, ?>) entityMap).get("alarmStore");
+                if (alarmStore instanceof Map<?, ?> alarmStoreMap) {
+                    Object parameters = ((Map<?, ?>) alarmStoreMap).get("parameters");
+                    if (parameters instanceof Map<?, ?> parametersMap) {
+                        for (Map.Entry<?, ?> entry : parametersMap.entrySet()) {
+                            String alarmName = entry.getKey().toString();
+                            if (!result.containsKey(alarmName) && entry.getValue() instanceof Map<?, ?> alarmData) {
                                 AlarmInfo info = parseAlarmFromStore(alarmName, (Map<String, Object>) alarmData);
                                 if (info != null) {
                                     result.put(alarmName, info);
@@ -384,20 +423,30 @@ public class EntityQueryService {
         String scheduledTime = null;
         Double remainingSeconds = null;
 
+        // Get current game time for calculating remaining
+        Long currentGameTimeMs = getCurrentGameTimeMillis();
+
         Object alarmInstant = alarmMap.get("alarmInstant");
         if (alarmInstant instanceof Map<?, ?> instantMap) {
             Object epochMilli = ((Map<?, ?>) instantMap).get("epochMilli");
             if (epochMilli instanceof Number n) {
                 long scheduledMs = n.longValue();
                 scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
-                long remainingMs = scheduledMs - System.currentTimeMillis();
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+
+                // Calculate remaining using game time, not wall-clock time
+                if (currentGameTimeMs != null) {
+                    long remainingMs = scheduledMs - currentGameTimeMs;
+                    remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+                }
             }
         } else if (alarmInstant instanceof Number n) {
             long scheduledMs = n.longValue();
             scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
-            long remainingMs = scheduledMs - System.currentTimeMillis();
-            remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+
+            if (currentGameTimeMs != null) {
+                long remainingMs = scheduledMs - currentGameTimeMs;
+                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+            }
         }
 
         // Also check for direct timestamp field
@@ -405,8 +454,11 @@ public class EntityQueryService {
         if (timestamp instanceof Number n && scheduledTime == null) {
             long scheduledMs = n.longValue();
             scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
-            long remainingMs = scheduledMs - System.currentTimeMillis();
-            remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+
+            if (currentGameTimeMs != null) {
+                long remainingMs = scheduledMs - currentGameTimeMs;
+                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+            }
         }
 
         return new AlarmInfo(name, state, scheduledTime, remainingSeconds);

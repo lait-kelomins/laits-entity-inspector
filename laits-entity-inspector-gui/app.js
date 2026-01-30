@@ -49,6 +49,15 @@ class EntityInspector {
         this.sensorCache = new Map();
         this.pendingRoleFetches = new Set();
 
+        // Alarms panel state
+        this.alarmsFilter = '';
+        this.alarmsSort = 'name'; // 'name', 'id', 'ready'
+
+        // Game time tracking (for alarm remaining time calculations)
+        this.gameTimeEpochMilli = null;  // Current game time from server
+        this.gameTimeReceivedAt = null;   // Wall-clock time when we received game time
+        this.alarmsUpdateInterval = null; // Timer for live alarm updates
+
         // Global changed components tracking (across all entities)
         this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
         this.chipRetentionMs = 8000;
@@ -174,6 +183,8 @@ class EntityInspector {
         this.tabAlarms = document.getElementById('tab-alarms');
         this.alarmsPanel = document.getElementById('alarms-panel');
         this.alarmsRefreshBtn = document.getElementById('alarms-refresh-btn');
+        this.alarmsFilterInput = document.getElementById('alarms-filter');
+        this.alarmsSortBtns = document.querySelectorAll('.sort-btn');
 
         // Asset browser elements
         this.assetTreeEl = document.getElementById('asset-tree');
@@ -257,6 +268,11 @@ class EntityInspector {
             this.ws.onclose = () => {
                 this.setStatus('disconnected');
                 this.log('Disconnected from server', 'disconnect');
+                // Stop alarm live updates on disconnect
+                if (this.alarmsUpdateInterval) {
+                    clearInterval(this.alarmsUpdateInterval);
+                    this.alarmsUpdateInterval = null;
+                }
                 this.scheduleReconnect();
             };
 
@@ -390,6 +406,12 @@ class EntityInspector {
         this.entities.clear();
         this.worldName = data.worldName || data.worldId || '---';
         this.worldNameEl.textContent = this.worldName;
+
+        // Store game time for alarm calculations
+        if (data.gameTimeEpochMilli) {
+            this.gameTimeEpochMilli = data.gameTimeEpochMilli;
+            this.gameTimeReceivedAt = Date.now();
+        }
 
         if (data.entities && Array.isArray(data.entities)) {
             data.entities.forEach(entity => {
@@ -1472,7 +1494,12 @@ class EntityInspector {
 
         // Render alarms section (if entity has alarms)
         const alarms = this.extractAlarms(entity);
-        html += this.renderAlarmsSection(alarms);
+        const timers = this.extractTimers(entity);
+        const runningTimer = timers.find(t => t.state === 'RUNNING');
+        html += this.renderAlarmsSection(alarms, runningTimer);
+
+        // Render timers section (if entity has active timers)
+        html += this.renderTimersSection(timers);
 
         // Render sensors section (if we have cached role data)
         const rolePath = this.extractRolePath(entity);
@@ -1810,11 +1837,13 @@ class EntityInspector {
                 // Alarm exists but not expanded - assume SET since it's defined
                 alarms[name] = { state: 'SET', expandable: true };
             } else {
-                // Expanded alarm data - log for debugging
-                console.log(`[ALARM DEBUG] ${name}:`, JSON.stringify(data, null, 2));
-
+                // Expanded alarm data
                 let state = 'UNSET';
                 let remainingMs = null;
+
+                // Check isSet field first (most reliable)
+                const isSet = data.isSet ?? data.set;
+                const hasPassed = data.hasPassed ?? data.passed ?? false;
 
                 // Try multiple paths for the alarm instant/trigger time
                 const epochMilli = data.alarmInstant?.epochMilli
@@ -1822,25 +1851,82 @@ class EntityInspector {
                     || data.triggerTime?.epochMilli
                     || data.epochMilli;
 
-                if (epochMilli) {
-                    // Alarm has a trigger time - determine state from time
-                    remainingMs = epochMilli - Date.now();
+                // Game time uses Instant starting from year 0001, which gives negative epoch values
+                // Check if we have an epoch value and current game time to calculate remaining
+                const currentGameTime = this.getCurrentGameTime();
+                const hasValidTime = epochMilli !== undefined && epochMilli !== null && currentGameTime !== null;
+
+                if (isSet === false) {
+                    // Explicitly not set
+                    state = 'UNSET';
+                } else if (hasPassed) {
+                    // Explicitly passed
+                    state = 'PASSED';
+                } else if (hasValidTime) {
+                    // Calculate remaining using game time, not wall-clock time
+                    remainingMs = epochMilli - currentGameTime;
                     state = remainingMs > 0 ? 'SET' : 'PASSED';
+                } else if (isSet === true) {
+                    // isSet but no valid time - alarm is set but not scheduled yet
+                    state = 'SET';
                 } else {
-                    // No trigger time - check explicit state fields as fallback
-                    if (data.state && typeof data.state === 'string') {
-                        state = data.state.toUpperCase();
-                    } else {
-                        const isSet = data.isSet ?? data.set ?? false;
-                        const hasPassed = data.hasPassed ?? data.passed ?? false;
-                        state = hasPassed ? 'PASSED' : (isSet ? 'SET' : 'UNSET');
-                    }
+                    // Unknown state
+                    state = 'UNSET';
                 }
 
                 alarms[name] = { state, remainingMs, expanded: true };
             }
         }
         return alarms;
+    }
+
+    /**
+     * Extract timers from entity's Timers component.
+     * Timers have: value (current), maxValue, rate, state, repeating
+     */
+    extractTimers(entity) {
+        const timers = [];
+        const timersComponent = entity.components?.Timers;
+
+        if (!timersComponent) return timers;
+
+        const timerArray = timersComponent.fields?.timers
+            || timersComponent.data?.timers
+            || timersComponent.timers;
+
+        if (!Array.isArray(timerArray)) return timers;
+
+        for (let i = 0; i < timerArray.length; i++) {
+            const t = timerArray[i];
+            if (!t || t._expandable) continue;
+
+            const state = t.state || 'STOPPED';
+            const value = t.value ?? 0;
+            const maxValue = t.maxValue ?? 0;
+            const rate = t.rate ?? 1;
+            const repeating = t.repeating ?? false;
+
+            // Calculate remaining time (timers count UP to maxValue)
+            let remainingSeconds = null;
+            if (state === 'RUNNING' && rate > 0 && maxValue > value) {
+                remainingSeconds = (maxValue - value) / rate;
+            }
+
+            // Only show timers that are running or have meaningful values
+            if (state === 'RUNNING' || state === 'PAUSED' || (maxValue > 0 && value > 0)) {
+                timers.push({
+                    index: i,
+                    state,
+                    value,
+                    maxValue,
+                    rate,
+                    repeating,
+                    remainingSeconds
+                });
+            }
+        }
+
+        return timers;
     }
 
     /**
@@ -1886,6 +1972,22 @@ class EntityInspector {
     }
 
     /**
+     * Get current game time in epoch milliseconds.
+     * Estimates based on when we received game time and elapsed real time.
+     * Note: Game time may progress at different rates than real time (day/night cycle).
+     * Returns null if game time is not available.
+     */
+    getCurrentGameTime() {
+        if (this.gameTimeEpochMilli === null || this.gameTimeReceivedAt === null) {
+            return null;
+        }
+        // Estimate current game time by adding elapsed real time
+        // This is approximate - game time may tick at different rates
+        const elapsed = Date.now() - this.gameTimeReceivedAt;
+        return this.gameTimeEpochMilli + elapsed;
+    }
+
+    /**
      * Format milliseconds as human-readable duration.
      */
     formatDuration(ms) {
@@ -1907,40 +2009,100 @@ class EntityInspector {
     /**
      * Render alarms section for the inspector.
      */
-    renderAlarmsSection(alarms) {
+    renderAlarmsSection(alarms, runningTimer = null) {
         if (!alarms || Object.keys(alarms).length === 0) return '';
 
-        let html = `
+        let badges = '';
+        for (const [name, data] of Object.entries(alarms)) {
+            const stateClass = data.state.toLowerCase();
+            let timeInfo = '';
+            let expandableClass = '';
+            let expandPath = '';
+
+            if (data.expandable) {
+                timeInfo = '?';
+                expandableClass = 'expandable-alarm';
+                expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
+            } else if (data.state === 'SET') {
+                // SET = alarm is scheduled - show remaining time if available
+                if (data.remainingMs != null && data.remainingMs > 0) {
+                    timeInfo = this.formatDuration(data.remainingMs);
+                } else {
+                    timeInfo = '✓';
+                }
+            } else if (data.state === 'UNSET') {
+                // UNSET = on cooldown - show timer if available
+                if (runningTimer && runningTimer.remainingSeconds > 0) {
+                    timeInfo = this.formatDuration(runningTimer.remainingSeconds * 1000);
+                } else {
+                    timeInfo = '⏳';
+                }
+            } else if (data.state === 'PASSED') {
+                // PASSED = timer finished, ready
+                timeInfo = '✓';
+            }
+
+            badges += `
+                <span class="alarm-badge ${stateClass} ${expandableClass}"
+                      ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}
+                      title="${escapeHtml(name)}: ${data.state === 'SET' ? 'Ready' : data.state === 'UNSET' ? 'Cooldown' : data.state}">
+                    ${escapeHtml(name)}${timeInfo ? `<span class="badge-time">${timeInfo}</span>` : ''}
+                </span>
+            `;
+        }
+
+        return `
             <div class="alarm-section component-section">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span class="component-name">⏰ ALARMS</span>
                 </div>
+                <div class="component-body alarm-badges-container">
+                    ${badges}
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render timers section for the inspector.
+     */
+    renderTimersSection(timers) {
+        if (!timers || timers.length === 0) return '';
+
+        let html = `
+            <div class="timer-section component-section">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">⏱️ TIMERS</span>
+                </div>
                 <div class="component-body">
         `;
 
-        for (const [name, data] of Object.entries(alarms)) {
-            const stateClass = data.state.toLowerCase();
+        for (const t of timers) {
+            const stateClass = t.state.toLowerCase();
+            let progress = '-';
             let remaining = '-';
-            let expandableClass = '';
-            let expandPath = '';
 
-            if (data.expandable) {
-                remaining = '[click to expand]';
-                expandableClass = 'expandable-alarm';
-                // Path to expand: components.InteractionManager.fields.entity.alarmStore.parameters.{name}
-                expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
-            } else if (data.remainingMs != null && data.remainingMs > 0) {
-                remaining = this.formatDuration(data.remainingMs);
-            } else if (data.state === 'PASSED') {
-                remaining = 'expired';
+            if (t.maxValue > 0) {
+                progress = `${t.value.toFixed(1)}/${t.maxValue}`;
+            }
+
+            if (t.remainingSeconds != null && t.remainingSeconds > 0) {
+                remaining = this.formatDuration(t.remainingSeconds * 1000);
+            } else if (t.state === 'STOPPED') {
+                remaining = 'stopped';
+            } else if (t.state === 'PAUSED') {
+                remaining = 'paused';
             }
 
             html += `
-                <div class="alarm-row ${stateClass} ${expandableClass}" ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}>
-                    <span class="alarm-name">${escapeHtml(name)}</span>
-                    <span class="alarm-state">${data.state}</span>
-                    <span class="alarm-remaining">${remaining}</span>
+                <div class="timer-row ${stateClass}">
+                    <span class="timer-index">[${t.index}]</span>
+                    <span class="timer-state">${t.state}</span>
+                    <span class="timer-progress">${progress}</span>
+                    <span class="timer-remaining">${remaining}</span>
+                    ${t.repeating ? '<span class="timer-repeat">↻</span>' : ''}
                 </div>
             `;
         }
@@ -1985,7 +2147,7 @@ class EntityInspector {
      * Collect all alarms across all entities for the global alarms panel.
      */
     collectAllAlarms() {
-        const allAlarms = [];
+        let allAlarms = [];
 
         for (const [entityId, entity] of this.entities) {
             const alarms = this.extractAlarms(entity);
@@ -1993,21 +2155,54 @@ class EntityInspector {
 
             const rolePath = this.extractRolePath(entity);
             const sensors = rolePath ? this.sensorCache.get(rolePath)?.Sensors : null;
+            const name = entity.modelAssetId || entity.entityType || `Entity #${entityId}`;
+
+            // Extract timers for cooldown display
+            const timers = this.extractTimers(entity);
+            const runningTimer = timers.find(t => t.state === 'RUNNING');
+
+            // Count SET alarms for sorting
+            const setCount = Object.values(alarms).filter(a => a.state === 'SET').length;
 
             allAlarms.push({
                 entityId,
-                name: entity.modelAssetId || entity.entityType || `Entity #${entityId}`,
+                name,
                 alarms,
-                sensors: sensors ? Object.keys(sensors) : []
+                sensors: sensors ? Object.keys(sensors) : [],
+                setCount,
+                runningTimer
             });
         }
 
-        // Sort by soonest alarm first
-        return allAlarms.sort((a, b) => {
-            const aMin = Math.min(...Object.values(a.alarms).map(x => x.remainingMs ?? Infinity));
-            const bMin = Math.min(...Object.values(b.alarms).map(x => x.remainingMs ?? Infinity));
-            return aMin - bMin;
-        });
+        // Apply filter
+        if (this.alarmsFilter) {
+            allAlarms = allAlarms.filter(entry => {
+                const nameMatch = entry.name.toLowerCase().includes(this.alarmsFilter);
+                const idMatch = String(entry.entityId).includes(this.alarmsFilter);
+                return nameMatch || idMatch;
+            });
+        }
+
+        // Apply sorting
+        switch (this.alarmsSort) {
+            case 'name':
+                allAlarms.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'id':
+                allAlarms.sort((a, b) => a.entityId - b.entityId);
+                break;
+            case 'ready':
+                // Sort by SET count (descending), then by soonest alarm
+                allAlarms.sort((a, b) => {
+                    if (b.setCount !== a.setCount) return b.setCount - a.setCount;
+                    const aMin = Math.min(...Object.values(a.alarms).map(x => x.remainingMs ?? Infinity));
+                    const bMin = Math.min(...Object.values(b.alarms).map(x => x.remainingMs ?? Infinity));
+                    return aMin - bMin;
+                });
+                break;
+        }
+
+        return allAlarms;
     }
 
     /**
@@ -2019,92 +2214,105 @@ class EntityInspector {
         const allAlarms = this.collectAllAlarms();
 
         if (allAlarms.length === 0) {
+            const message = this.alarmsFilter
+                ? `NO MATCHES FOR "${this.alarmsFilter.toUpperCase()}"`
+                : 'NO ACTIVE ALARMS IN WORLD';
             this.alarmsPanel.innerHTML = `
                 <div class="empty-state">
-                    <pre>
-    ╔════════════════════════════════╗
-    ║  NO ACTIVE ALARMS IN WORLD    ║
-    ╚════════════════════════════════╝
-                    </pre>
+                    <pre>${message}</pre>
                 </div>
             `;
             return;
         }
 
+        // Count total entities with alarms (before filter)
+        let totalCount = 0;
+        for (const [, entity] of this.entities) {
+            if (Object.keys(this.extractAlarms(entity)).length > 0) totalCount++;
+        }
+
         let html = `<div class="alarms-panel-content">`;
-        html += `<div class="alarms-header">🔔 WORLD ALARMS (${allAlarms.length} entities)</div>`;
+        const countText = this.alarmsFilter
+            ? `🔔 ${allAlarms.length}/${totalCount} entities`
+            : `🔔 ${allAlarms.length} entities`;
+        html += `<div class="alarms-header">${countText}</div>`;
 
         for (const entry of allAlarms) {
-            html += `
-                <div class="alarm-entity" data-entity-id="${entry.entityId}">
-                    <div class="alarm-entity-header" data-entity-id="${entry.entityId}">
-                        <span class="entity-name">${escapeHtml(entry.name)}</span>
-                        <span class="entity-id">#${entry.entityId}</span>
-                        <span class="entity-link-hint">→ click to inspect</span>
-                    </div>
-            `;
-
+            // Build alarm badges
+            let alarmBadges = '';
             for (const [name, data] of Object.entries(entry.alarms)) {
                 const stateClass = data.state.toLowerCase();
-                let remaining = '-';
+                let timeInfo = '';
                 let expandableClass = '';
                 let expandPath = '';
 
                 if (data.expandable) {
-                    remaining = '[expand]';
+                    timeInfo = '?';
                     expandableClass = 'expandable-alarm';
                     expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
-                } else if (data.remainingMs != null && data.remainingMs > 0) {
-                    remaining = this.formatDuration(data.remainingMs);
+                } else if (data.state === 'SET') {
+                    // SET = alarm is scheduled - show remaining time if available
+                    if (data.remainingMs != null && data.remainingMs > 0) {
+                        timeInfo = this.formatDuration(data.remainingMs);
+                    } else {
+                        timeInfo = '✓';
+                    }
+                } else if (data.state === 'UNSET') {
+                    // UNSET = on cooldown - show timer if available
+                    if (entry.runningTimer && entry.runningTimer.remainingSeconds > 0) {
+                        timeInfo = this.formatDuration(entry.runningTimer.remainingSeconds * 1000);
+                    } else {
+                        timeInfo = '⏳';
+                    }
                 } else if (data.state === 'PASSED') {
-                    remaining = 'expired';
+                    // PASSED = timer finished, ready
+                    timeInfo = '✓';
                 }
 
-                html += `
-                    <div class="alarm-row ${stateClass} ${expandableClass}"
-                         data-entity-id="${entry.entityId}"
-                         ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}>
-                        <span class="alarm-indent">├─</span>
-                        <span class="alarm-name">${escapeHtml(name)}</span>
-                        <span class="alarm-state">${data.state}</span>
-                        <span class="alarm-remaining">${remaining}</span>
-                    </div>
+                // Shorten common alarm names
+                const shortName = name
+                    .replace('_Ready', '')
+                    .replace('_Cooldown', '⏳');
+
+                alarmBadges += `
+                    <span class="alarm-badge ${stateClass} ${expandableClass}"
+                          data-entity-id="${entry.entityId}"
+                          ${expandPath ? `data-expand-path="${escapeHtml(expandPath)}"` : ''}
+                          title="${escapeHtml(name)}: ${data.state}${timeInfo ? ' - ' + timeInfo : ''}">
+                        ${escapeHtml(shortName)}${timeInfo ? `<span class="badge-time">${timeInfo}</span>` : ''}
+                    </span>
                 `;
             }
 
-            // Show sensors if available
-            if (entry.sensors.length > 0) {
-                html += `
-                    <div class="sensor-summary">
-                        <span class="alarm-indent">└─</span>
-                        <span class="sensor-icon">📡</span>
-                        <span class="sensor-list">${entry.sensors.join(', ')}</span>
-                    </div>
-                `;
-            }
-
-            html += `</div>`;
+            html += `
+                <div class="alarm-entity-compact" data-entity-id="${entry.entityId}">
+                    <span class="entity-info" data-entity-id="${entry.entityId}">
+                        <span class="entity-name">${escapeHtml(entry.name)}</span>
+                        <span class="entity-id">#${entry.entityId}</span>
+                    </span>
+                    <span class="alarm-badges">${alarmBadges}</span>
+                </div>
+            `;
         }
 
         html += `</div>`;
         this.alarmsPanel.innerHTML = html;
 
-        // Add click handlers for expandable alarms (must come before entity click handler)
-        this.alarmsPanel.querySelectorAll('.alarm-row.expandable-alarm').forEach(el => {
+        // Add click handlers for expandable alarm badges
+        this.alarmsPanel.querySelectorAll('.alarm-badge.expandable-alarm').forEach(el => {
             el.addEventListener('click', (e) => {
-                e.stopPropagation(); // Don't trigger entity selection
+                e.stopPropagation();
                 const entityId = parseInt(el.dataset.entityId);
                 const path = el.dataset.expandPath;
                 if (path && entityId) {
                     this.requestExpand(entityId, path);
                     el.classList.add('loading');
-                    el.querySelector('.alarm-remaining').textContent = 'loading...';
                 }
             });
         });
 
-        // Add click handlers to entity headers to select entity
-        this.alarmsPanel.querySelectorAll('.alarm-entity-header').forEach(el => {
+        // Add click handlers to entity info to select entity
+        this.alarmsPanel.querySelectorAll('.entity-info').forEach(el => {
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const entityId = parseInt(el.dataset.entityId);
@@ -2710,6 +2918,27 @@ class EntityInspector {
                 this.renderAlarmsPanel();
             });
         }
+
+        // Alarms filter input
+        if (this.alarmsFilterInput) {
+            this.alarmsFilterInput.addEventListener('input', (e) => {
+                this.alarmsFilter = e.target.value.trim().toLowerCase();
+                this.renderAlarmsPanel();
+            });
+        }
+
+        // Alarms sort buttons
+        if (this.alarmsSortBtns) {
+            this.alarmsSortBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.alarmsSort = btn.dataset.sort;
+                    // Update active state
+                    this.alarmsSortBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.renderAlarmsPanel();
+                });
+            });
+        }
     }
 
     switchTab(tabName) {
@@ -2736,9 +2965,21 @@ class EntityInspector {
             this.requestAssetCategories();
         }
 
-        // Render global alarms panel when switching to alarms tab
+        // Manage alarm live updates
         if (tabName === 'alarms') {
             this.renderAlarmsPanel();
+            // Start live updates every second
+            if (!this.alarmsUpdateInterval) {
+                this.alarmsUpdateInterval = setInterval(() => {
+                    this.renderAlarmsPanel();
+                }, 1000);
+            }
+        } else {
+            // Stop live updates when leaving alarms tab
+            if (this.alarmsUpdateInterval) {
+                clearInterval(this.alarmsUpdateInterval);
+                this.alarmsUpdateInterval = null;
+            }
         }
     }
 

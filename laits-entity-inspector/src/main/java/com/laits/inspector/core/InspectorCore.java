@@ -1,7 +1,10 @@
 package com.laits.inspector.core;
 
+import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.modules.time.WorldTimeResource;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.laits.inspector.cache.InMemoryCache;
 import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.config.InspectorConfig;
@@ -64,8 +67,9 @@ public class InspectorCore implements DataTransportListener {
         this.patchManager = new PatchManager();
         this.historyTracker = new SessionHistoryTracker();
 
-        // Initialize entity query service
+        // Initialize entity query service with game time supplier
         this.entityQueryService = new EntityQueryService(this.cache);
+        this.entityQueryService.setGameTimeSupplier(this::getCurrentGameTimeEpochMilli);
     }
 
     /**
@@ -156,6 +160,39 @@ public class InspectorCore implements DataTransportListener {
      */
     public World getCurrentWorld() {
         return currentWorld;
+    }
+
+    /**
+     * Get the current game time in epoch milliseconds.
+     * Returns null if world is not available.
+     */
+    public Long getCurrentGameTimeEpochMilli() {
+        World world = currentWorld;
+        if (world == null) {
+            return null;
+        }
+
+        try {
+            var entityStore = world.getEntityStore();
+            if (entityStore == null) {
+                return null;
+            }
+
+            Store<EntityStore> store = entityStore.getStore();
+            if (store == null) {
+                return null;
+            }
+
+            WorldTimeResource timeResource = store.getResource(WorldTimeResource.getResourceType());
+            if (timeResource == null || timeResource.getGameTime() == null) {
+                return null;
+            }
+
+            return timeResource.getGameTime().toEpochMilli();
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to get game time: %s", e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -357,11 +394,12 @@ public class InspectorCore implements DataTransportListener {
             return null;
         }
 
-        // Return cached entities as a snapshot
+        // Return cached entities as a snapshot with current game time
         return WorldSnapshot.builder()
                 .worldId(world.getName())
                 .worldName(world.getName())
                 .entities(new ArrayList<>(cache.getAllEntities()))
+                .gameTimeEpochMilli(getCurrentGameTimeEpochMilli())
                 .build();
     }
 

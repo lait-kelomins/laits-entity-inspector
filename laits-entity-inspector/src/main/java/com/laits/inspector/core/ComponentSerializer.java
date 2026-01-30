@@ -85,6 +85,21 @@ public class ComponentSerializer {
             return Arrays.asList(vec.getX(), vec.getY(), vec.getZ());
         }
 
+        // Java Instant - serialize as epoch millis and ISO string
+        if (value instanceof java.time.Instant instant) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("epochMilli", instant.toEpochMilli());
+            result.put("iso", instant.toString());
+            result.put("_type", "Instant");
+            return result;
+        }
+
+        // Hytale Alarm - use reflection to extract fields
+        String className = value.getClass().getSimpleName();
+        if ("Alarm".equals(className)) {
+            return serializeAlarm(value);
+        }
+
         // byte[] as hex string
         if (value instanceof byte[] bytes) {
             if (bytes.length == 0) return "[]";
@@ -175,6 +190,91 @@ public class ComponentSerializer {
         }
 
         return "[" + typeName + "]";
+    }
+
+    /**
+     * Serialize a Hytale Alarm object using reflection.
+     * Alarms typically have: isSet(), hasPassed(), getAlarmInstant()
+     */
+    private Object serializeAlarm(Object alarm) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Class<?> clazz = alarm.getClass();
+
+        try {
+            // Try to call isSet()
+            try {
+                java.lang.reflect.Method isSetMethod = clazz.getMethod("isSet");
+                Object isSet = isSetMethod.invoke(alarm);
+                if (isSet instanceof Boolean) {
+                    result.put("isSet", isSet);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available
+            }
+
+            // Try to call hasPassed()
+            try {
+                java.lang.reflect.Method hasPassedMethod = clazz.getMethod("hasPassed");
+                Object hasPassed = hasPassedMethod.invoke(alarm);
+                if (hasPassed instanceof Boolean) {
+                    result.put("hasPassed", hasPassed);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available
+            }
+
+            // Try to call getAlarmInstant()
+            try {
+                java.lang.reflect.Method getInstantMethod = clazz.getMethod("getAlarmInstant");
+                Object instant = getInstantMethod.invoke(alarm);
+                if (instant instanceof java.time.Instant inst) {
+                    Map<String, Object> instantData = new LinkedHashMap<>();
+                    instantData.put("epochMilli", inst.toEpochMilli());
+                    instantData.put("iso", inst.toString());
+                    result.put("alarmInstant", instantData);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available - try alternate names
+                try {
+                    java.lang.reflect.Method getInstantMethod = clazz.getMethod("getInstant");
+                    Object instant = getInstantMethod.invoke(alarm);
+                    if (instant instanceof java.time.Instant inst) {
+                        Map<String, Object> instantData = new LinkedHashMap<>();
+                        instantData.put("epochMilli", inst.toEpochMilli());
+                        instantData.put("iso", inst.toString());
+                        result.put("alarmInstant", instantData);
+                    }
+                } catch (NoSuchMethodException e2) {
+                    // Method not available
+                }
+            }
+
+            // Try to get the scheduled time directly from field
+            try {
+                java.lang.reflect.Field instantField = clazz.getDeclaredField("alarmInstant");
+                instantField.setAccessible(true);
+                Object instant = instantField.get(alarm);
+                if (instant instanceof java.time.Instant inst && !result.containsKey("alarmInstant")) {
+                    Map<String, Object> instantData = new LinkedHashMap<>();
+                    instantData.put("epochMilli", inst.toEpochMilli());
+                    instantData.put("iso", inst.toString());
+                    result.put("alarmInstant", instantData);
+                }
+            } catch (NoSuchFieldException e) {
+                // Field not available
+            }
+
+        } catch (Exception e) {
+            // If all fails, return placeholder
+            return "[Alarm: " + e.getMessage() + "]";
+        }
+
+        if (result.isEmpty()) {
+            return "[Alarm]";
+        }
+
+        result.put("_type", "Alarm");
+        return result;
     }
 
     private void serializeGenericDeep(Object component, Map<String, Object> fields, int depth) {
@@ -304,6 +404,21 @@ public class ComponentSerializer {
         // Hytale Vector3d
         if (value instanceof Vector3d vec) {
             return Arrays.asList(vec.getX(), vec.getY(), vec.getZ());
+        }
+
+        // Java Instant - serialize as epoch millis and ISO string
+        if (value instanceof java.time.Instant instant) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("epochMilli", instant.toEpochMilli());
+            result.put("iso", instant.toString());
+            result.put("_type", "Instant");
+            return result;
+        }
+
+        // Hytale Alarm - use reflection to extract fields
+        String className = value.getClass().getSimpleName();
+        if ("Alarm".equals(className)) {
+            return serializeAlarm(value);
         }
 
         // byte[] as hex string
