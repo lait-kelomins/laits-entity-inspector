@@ -10,32 +10,11 @@ Real-time entity debugging tools for Hytale modding.
 
 ## Installation
 
-### Quick Install (Recommended)
+1. Clone the repo and run `laits-entity-inspector-gui/update.ps1` (Windows) or `update.sh` (Linux/Mac)
+2. Enable the mod in-game
+3. Open `laits-entity-inspector-gui/index.html` in a browser
 
-1. Download the latest release from [Releases](https://github.com/lait-kelomins/laits-entity-inspector/releases)
-2. Extract `laits-entity-inspector-gui.zip` to a folder
-3. Copy `laits-entity-inspector-x.x.x.jar` to your world's mods folder:
-   ```
-   %APPDATA%/Hytale/UserData/Saves/<world>/Mods/
-   ```
-4. Start the Hytale server
-5. Open `index.html` in a browser
-
-### Updating
-
-Run the auto-updater in the GUI folder:
-
-**Windows:**
-```powershell
-.\update.ps1
-```
-
-**Linux/Mac:**
-```bash
-./update.sh
-```
-
-The updater will download both the GUI and mod jar automatically.
+Run the updater again on new releases for auto-updating - you'll be notified on the dashboard.
 
 ---
 
