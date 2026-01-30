@@ -21,6 +21,20 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Get latest Hytale Server version
+        id: hytale
+        run: |
+          LATEST=$(curl -s "https://maven.hytale.com/release/com/hypixel/hytale/Server/maven-metadata.xml" | grep -oP '(?<=<latest>)[^<]+')
+          echo "Latest Hytale Server version: $LATEST"
+          echo "VERSION=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Update Hytale dependency version
+        working-directory: laits-entity-inspector
+        run: |
+          sed -i "s/com.hypixel.hytale:Server:[^\"')]\+/com.hypixel.hytale:Server:${{ steps.hytale.outputs.VERSION }}/g" build.gradle
+          echo "Updated build.gradle:"
+          grep "com.hypixel.hytale:Server" build.gradle
+
       - name: Build mod
         working-directory: laits-entity-inspector
         run: |
@@ -40,6 +54,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: "Lait's Entity Inspector v${{ steps.version.outputs.VERSION }}"
+          body: |
+            Built with Hytale Server API version: `${{ steps.hytale.outputs.VERSION }}`
           files: |
             laits-entity-inspector/build/libs/laits-entity-inspector-*.jar
             laits-entity-inspector-gui.zip
