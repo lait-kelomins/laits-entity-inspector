@@ -1,0 +1,9 @@
+# Ensure shell scripts always have LF line endings
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Batch files keep CRLF
+*.bat text eol=crlf
+
+# Binary files
+*.jar binary
