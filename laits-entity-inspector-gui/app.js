@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.0.7';
+const GUI_VERSION = '0.1.0';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 /**
@@ -2233,7 +2233,8 @@ class EntityInspector {
         if (banner && !banner.classList.contains('mismatch')) {
             banner.innerHTML = `
                 <span class="version-update">🔄 Update available: v${this.latestRelease.version}</span>
-                <a href="${this.latestRelease.url}" target="_blank" class="update-link">Download</a>
+                <span class="update-hint">Run <code>update.ps1</code> (Win) or <code>update.sh</code> (Linux/Mac)</span>
+                <a href="${this.latestRelease.url}" target="_blank" class="update-link">Manual Download</a>
             `;
             banner.classList.add('visible', 'update');
         }
