@@ -19,3 +19,4 @@ Thumbs.db
 # Local
 *.log
 local.properties
+bump-version.ps1
