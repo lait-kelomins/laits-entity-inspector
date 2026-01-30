@@ -189,6 +189,17 @@
                         <button class="sort-btn" data-sort="id" title="Sort by ID">ID</button>
                         <button class="sort-btn" data-sort="ready" title="Sort by SET alarms first">Ready</button>
                     </div>
+                    <button class="control-btn" id="time-debug-toggle" title="Toggle Time Debug">DEBUG</button>
+                </div>
+                <!-- Time Debug Panel (collapsible) -->
+                <div class="time-debug-panel hidden" id="time-debug-panel">
+                    <div class="debug-row"><span class="debug-label">gameTimeEpochMilli:</span><span id="debug-gameTimeEpochMilli">-</span></div>
+                    <div class="debug-row"><span class="debug-label">gameTimeReceivedAt:</span><span id="debug-gameTimeReceivedAt">-</span></div>
+                    <div class="debug-row"><span class="debug-label">gameTimeRate:</span><span id="debug-gameTimeRate">-</span></div>
+                    <div class="debug-row"><span class="debug-label">elapsedRealMs:</span><span id="debug-elapsedRealMs">-</span></div>
+                    <div class="debug-row"><span class="debug-label">elapsedGameMs:</span><span id="debug-elapsedGameMs">-</span></div>
+                    <div class="debug-row"><span class="debug-label">currentGameTime:</span><span id="debug-currentGameTime">-</span></div>
+                    <div class="debug-row"><span class="debug-label">currentGameTimeISO:</span><span id="debug-currentGameTimeISO">-</span></div>
                 </div>
                 <div class="alarms-panel" id="alarms-panel">
                     <div class="empty-state">

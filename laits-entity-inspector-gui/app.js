@@ -59,6 +59,10 @@ class EntityInspector {
         this.gameTimeRate = null;         // Game seconds per real second (e.g., 72 = 72x speed)
         this.alarmsUpdateInterval = null; // Timer for live alarm updates
 
+        // Alarm debug tracking - stores previous epochMilli values to detect changes
+        // Map<entityId, Map<alarmName, { epochMilli, lastChanged }>>
+        this.alarmHistory = new Map();
+
         // Global changed components tracking (across all entities)
         this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
         this.chipRetentionMs = 8000;
@@ -186,6 +190,8 @@ class EntityInspector {
         this.alarmsRefreshBtn = document.getElementById('alarms-refresh-btn');
         this.alarmsFilterInput = document.getElementById('alarms-filter');
         this.alarmsSortBtns = document.querySelectorAll('.sort-btn');
+        this.timeDebugPanel = document.getElementById('time-debug-panel');
+        this.timeDebugToggle = document.getElementById('time-debug-toggle');
 
         // Asset browser elements
         this.assetTreeEl = document.getElementById('asset-tree');
@@ -1815,6 +1821,7 @@ class EntityInspector {
      */
     extractAlarms(entity) {
         const alarms = {};
+        const entityId = entity.entityId;
 
         // Try InteractionManager first (most common location)
         const interactionManager = entity.components?.InteractionManager;
@@ -1853,6 +1860,12 @@ class EntityInspector {
 
         if (!alarmStore) return alarms;
 
+        // Get or create history for this entity
+        if (!this.alarmHistory.has(entityId)) {
+            this.alarmHistory.set(entityId, new Map());
+        }
+        const entityHistory = this.alarmHistory.get(entityId);
+
         for (const [name, data] of Object.entries(alarmStore)) {
             if (data._expandable) {
                 // Alarm exists but not expanded - assume SET since it's defined
@@ -1871,6 +1884,28 @@ class EntityInspector {
                     || data.instant?.epochMilli
                     || data.triggerTime?.epochMilli
                     || data.epochMilli;
+
+                // Track epochMilli changes for debugging
+                let epochChanged = false;
+                let previousEpoch = null;
+                let changeCount = 0;
+                const prevHistory = entityHistory.get(name);
+                if (prevHistory) {
+                    previousEpoch = prevHistory.epochMilli;
+                    changeCount = prevHistory.changeCount || 0;
+                    if (epochMilli !== undefined && epochMilli !== null &&
+                        previousEpoch !== undefined && previousEpoch !== null &&
+                        epochMilli !== previousEpoch) {
+                        epochChanged = true;
+                        changeCount++;
+                    }
+                }
+                // Update history
+                entityHistory.set(name, {
+                    epochMilli,
+                    lastSeen: Date.now(),
+                    changeCount
+                });
 
                 // Game time uses Instant starting from year 0001, which gives negative epoch values
                 // Check if we have an epoch value and current game time to calculate remaining
@@ -1895,7 +1930,16 @@ class EntityInspector {
                     state = 'UNSET';
                 }
 
-                alarms[name] = { state, remainingMs, expanded: true };
+                alarms[name] = {
+                    state,
+                    remainingMs,
+                    epochMilli,
+                    expanded: true,
+                    // Debug info
+                    epochChanged,
+                    previousEpoch,
+                    changeCount
+                };
             }
         }
         return alarms;
@@ -2016,6 +2060,51 @@ class EntityInspector {
     gameTimeToRealTime(gameMs) {
         const rate = this.gameTimeRate || 1;
         return gameMs / rate;
+    }
+
+    /**
+     * Update the time debug panel with current values.
+     */
+    updateTimeDebugPanel() {
+        if (!this.timeDebugPanel || this.timeDebugPanel.classList.contains('hidden')) {
+            return;
+        }
+
+        const now = Date.now();
+        const elapsedRealMs = this.gameTimeReceivedAt ? now - this.gameTimeReceivedAt : null;
+        const rate = this.gameTimeRate || 1;
+        const elapsedGameMs = elapsedRealMs !== null ? elapsedRealMs * rate : null;
+        const currentGameTime = this.getCurrentGameTime();
+
+        // Convert game time epoch to ISO for readability
+        let currentGameTimeISO = '-';
+        if (currentGameTime !== null) {
+            try {
+                // Game time uses year 0001 start, so epoch is negative
+                // We can't use Date directly for negative epochs, so just show the number
+                // and calculate approximate game date
+                const msPerDay = 86400000;
+                const daysFromEpoch = currentGameTime / msPerDay;
+                const gameDays = Math.floor(daysFromEpoch + 719528); // Days from year 0001
+                currentGameTimeISO = `Day ${gameDays} (~${(currentGameTime / msPerDay).toFixed(2)} days from epoch)`;
+            } catch (e) {
+                currentGameTimeISO = 'parse error';
+            }
+        }
+
+        document.getElementById('debug-gameTimeEpochMilli').textContent =
+            this.gameTimeEpochMilli !== null ? this.gameTimeEpochMilli.toLocaleString() : 'null';
+        document.getElementById('debug-gameTimeReceivedAt').textContent =
+            this.gameTimeReceivedAt !== null ? new Date(this.gameTimeReceivedAt).toISOString() : 'null';
+        document.getElementById('debug-gameTimeRate').textContent =
+            this.gameTimeRate !== null ? this.gameTimeRate.toFixed(4) : 'null (defaulting to 1)';
+        document.getElementById('debug-elapsedRealMs').textContent =
+            elapsedRealMs !== null ? `${elapsedRealMs.toLocaleString()} ms (${(elapsedRealMs/1000).toFixed(1)}s)` : '-';
+        document.getElementById('debug-elapsedGameMs').textContent =
+            elapsedGameMs !== null ? `${elapsedGameMs.toLocaleString()} ms (${(elapsedGameMs/1000).toFixed(1)}s)` : '-';
+        document.getElementById('debug-currentGameTime').textContent =
+            currentGameTime !== null ? currentGameTime.toLocaleString() : 'null';
+        document.getElementById('debug-currentGameTimeISO').textContent = currentGameTimeISO;
     }
 
     /**
@@ -2244,6 +2333,9 @@ class EntityInspector {
     renderAlarmsPanel() {
         if (!this.alarmsPanel) return;
 
+        // Update debug panel if visible
+        this.updateTimeDebugPanel();
+
         const allAlarms = this.collectAllAlarms();
 
         if (allAlarms.length === 0) {
@@ -2319,6 +2411,32 @@ class EntityInspector {
                 `;
             }
 
+            // Build debug info for each alarm if debug panel is visible
+            let debugInfo = '';
+            const showDebug = this.timeDebugPanel && !this.timeDebugPanel.classList.contains('hidden');
+            if (showDebug) {
+                for (const [name, data] of Object.entries(entry.alarms)) {
+                    const epochMilli = data.epochMilli ?? 'null';
+                    const remainingMs = data.remainingMs ?? 'null';
+                    const realRemainingMs = data.remainingMs != null ? this.gameTimeToRealTime(data.remainingMs) : null;
+                    // Show epoch change tracking
+                    const epochChanged = data.epochChanged ? '⚠️ CHANGED!' : '';
+                    const prevEpoch = data.previousEpoch != null ? data.previousEpoch : '-';
+                    const changeCount = data.changeCount || 0;
+                    debugInfo += `
+                        <div class="alarm-debug-row ${data.epochChanged ? 'epoch-changed' : ''}">
+                            <span class="debug-alarm-name">${escapeHtml(name)}:</span>
+                            <span>epoch=${epochMilli} ${epochChanged}</span>
+                            <span>prevEpoch=${prevEpoch}</span>
+                            <span>changes=${changeCount}</span>
+                            <span>gameRemainMs=${remainingMs != null ? Math.round(remainingMs) : 'null'}</span>
+                            <span>realRemainMs=${realRemainingMs != null ? Math.round(realRemainingMs) : 'null'}</span>
+                            <span>state=${data.state}</span>
+                        </div>
+                    `;
+                }
+            }
+
             html += `
                 <div class="alarm-entity-compact" data-entity-id="${entry.entityId}">
                     <span class="entity-info" data-entity-id="${entry.entityId}">
@@ -2326,6 +2444,7 @@ class EntityInspector {
                         <span class="entity-id">#${entry.entityId}</span>
                     </span>
                     <span class="alarm-badges">${alarmBadges}</span>
+                    ${debugInfo ? `<div class="alarm-debug-info">${debugInfo}</div>` : ''}
                 </div>
             `;
         }
@@ -2972,6 +3091,17 @@ class EntityInspector {
                     btn.classList.add('active');
                     this.renderAlarmsPanel();
                 });
+            });
+        }
+
+        // Time debug toggle
+        if (this.timeDebugToggle) {
+            this.timeDebugToggle.addEventListener('click', () => {
+                this.timeDebugPanel.classList.toggle('hidden');
+                this.timeDebugToggle.classList.toggle('active');
+                if (!this.timeDebugPanel.classList.contains('hidden')) {
+                    this.updateTimeDebugPanel();
+                }
             });
         }
     }
