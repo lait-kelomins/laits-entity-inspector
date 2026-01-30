@@ -39,12 +39,11 @@ class EntityInspector {
         this.hytalorEnabled = false;
         this.assetCategories = [];
         this.selectedCategory = null;
-        this.assets = [];
         this.selectedAsset = null;
         this.assetDetail = null;
         this.assetFilter = '';
-        this.searchMode = 'category'; // 'category' or 'global'
         this.sessionHistory = [];
+        this.searchResults = {}; // categoryId -> matching assets
 
         // Global changed components tracking (across all entities)
         this.globalChanges = []; // [{entityId, entityName, componentName, timestamp}]
@@ -71,7 +70,7 @@ class EntityInspector {
 
         // Packet log state
         this.packetLog = [];               // All logged packets
-        this.packetLogPaused = false;
+        this.packetLogPaused = true; // Paused by default
         this.packetLogFilter = '';
         this.packetDirectionFilter = 'all';
         this.selectedPacket = null;
@@ -97,9 +96,14 @@ class EntityInspector {
         this.logContent = document.getElementById('log-content');
         this.eventLog = document.getElementById('event-log');
 
-        // Global changes header elements
-        this.changedHeaderEl = document.getElementById('changed-components-header');
-        this.componentChipsEl = document.getElementById('component-chips');
+        // Live changes panel elements
+        this.liveChangesPanel = document.getElementById('live-changes-panel');
+        this.liveChangesContent = document.getElementById('live-changes-content');
+        this.liveChangesPauseBtn = document.getElementById('live-changes-pause-btn');
+        this.liveChangesPauseIcon = document.getElementById('live-changes-pause-icon');
+        this.liveChangesPauseLabel = document.getElementById('live-changes-pause-label');
+        this.liveChangesClearBtn = document.getElementById('live-changes-clear-btn');
+        this.liveChangesPaused = true; // Paused by default
 
         // Packet log elements
         this.packetLogPanel = document.getElementById('packet-log-panel');
@@ -144,11 +148,20 @@ class EntityInspector {
         this.settingWsAddress = document.getElementById('setting-ws-address');
         this.settingWsMaxClients = document.getElementById('setting-ws-max-clients');
 
-        // Inspector pause button
-        this.inspectorPauseBtn = document.getElementById('inspector-pause-btn');
-        this.inspectorPauseIcon = document.getElementById('inspector-pause-icon');
-        this.inspectorPauseLabel = document.getElementById('inspector-pause-label');
-        this.inspectorPaused = false;
+        // Global pause button (footer)
+        this.globalPauseBtn = document.getElementById('global-pause-btn');
+        this.globalPauseIcon = document.getElementById('global-pause-icon');
+        this.globalPauseLabel = document.getElementById('global-pause-label');
+
+        // Individual panel pause buttons
+        this.entityListPauseBtn = document.getElementById('entity-list-pause-btn');
+        this.entityListPauseIcon = document.getElementById('entity-list-pause-icon');
+        this.inspectorPauseBtnHeader = document.getElementById('inspector-pause-btn-header');
+        this.inspectorPauseIconHeader = document.getElementById('inspector-pause-icon-header');
+
+        // Panel pause states (paused by default)
+        this.entityListPaused = true;
+        this.inspectorPaused = true;
 
         // Tab elements
         this.tabBtns = document.querySelectorAll('.tab-btn');
@@ -156,13 +169,17 @@ class EntityInspector {
         this.tabAssets = document.getElementById('tab-assets');
 
         // Asset browser elements
-        this.categoryList = document.getElementById('category-list');
-        this.assetListEl = document.getElementById('asset-list');
+        this.assetTreeEl = document.getElementById('asset-tree');
         this.assetDetailEl = document.getElementById('asset-detail');
         this.assetFilterInput = document.getElementById('asset-filter');
-        this.searchModeToggle = document.getElementById('search-mode-toggle');
+        this.expandAllBtn = document.getElementById('expand-all-btn');
         this.patchBtn = document.getElementById('patch-btn');
         this.historyList = document.getElementById('history-list');
+
+        // Track expanded categories and loaded assets
+        this.expandedCategories = new Set();
+        this.categoryAssets = {}; // categoryId -> [assets]
+        this.loadingCategories = new Set();
 
         // Patch modal elements
         this.patchModal = document.getElementById('patch-modal');
@@ -204,6 +221,7 @@ class EntityInspector {
         this.setupPatchModalListeners();
         this.loadHeaderState();
         this.loadCachedConfig();  // Load settings from localStorage as fallback
+        this.initializePauseState();  // Set initial pause UI state
         this.connect();
         this.startUptimeTimer();
         this.startGlobalChangesCleanup();
@@ -224,6 +242,9 @@ class EntityInspector {
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
                 this.log('Connected to server', 'connect');
+
+                // Tell server we're paused by default
+                this.send('SET_PAUSED', { paused: this.packetLogPaused });
             };
 
             this.ws.onclose = () => {
@@ -378,14 +399,17 @@ class EntityInspector {
         entity = this.normalizeEntityPosition(entity);
         this.entities.set(entity.entityId, entity);
         this.log(`SPAWN: ${entity.modelAssetId || entity.entityType || 'Entity'} #${entity.entityId}`, 'spawn');
-        this.renderEntityList();
-        this.updateEntityCount();
 
-        // Flash animation for new entity
-        setTimeout(() => {
-            const row = document.querySelector(`[data-entity-id="${entity.entityId}"]`);
-            if (row) row.classList.add('spawned');
-        }, 10);
+        if (!this.entityListPaused) {
+            this.renderEntityList();
+            this.updateEntityCount();
+
+            // Flash animation for new entity
+            setTimeout(() => {
+                const row = document.querySelector(`[data-entity-id="${entity.entityId}"]`);
+                if (row) row.classList.add('spawned');
+            }, 10);
+        }
     }
 
     handleDespawn(data) {
@@ -394,6 +418,12 @@ class EntityInspector {
         const name = entity ? (entity.modelAssetId || entity.entityType || 'Entity') : 'Entity';
 
         this.log(`DESPAWN: ${name} #${entityId}`, 'despawn');
+
+        if (this.entityListPaused) {
+            // Just delete from data, don't update UI
+            this.entities.delete(entityId);
+            return;
+        }
 
         // Animate removal
         const row = document.querySelector(`[data-entity-id="${entityId}"]`);
@@ -427,21 +457,23 @@ class EntityInspector {
             this.trackComponentChanges(entity.entityId, data.changedComponents);
         }
 
-        // Flash the updated row
-        const row = document.querySelector(`[data-entity-id="${entity.entityId}"]`);
-        if (row) {
-            row.classList.remove('updated');
-            void row.offsetWidth; // Trigger reflow
-            row.classList.add('updated');
+        // Update entity list UI (skip if paused)
+        if (!this.entityListPaused) {
+            const row = document.querySelector(`[data-entity-id="${entity.entityId}"]`);
+            if (row) {
+                row.classList.remove('updated');
+                void row.offsetWidth; // Trigger reflow
+                row.classList.add('updated');
 
-            // Update position display
-            const posEl = row.querySelector('.col-pos');
-            if (posEl && entity.position) {
-                posEl.textContent = this.formatPosition(entity.position);
+                // Update position display
+                const posEl = row.querySelector('.col-pos');
+                if (posEl && entity.position) {
+                    posEl.textContent = this.formatPosition(entity.position);
+                }
             }
         }
 
-        // Update inspector if selected (skip only if manually paused)
+        // Update inspector if selected (skip if paused)
         if (this.selectedEntityId === entity.entityId && !this.inspectorPaused) {
             this.renderInspector();
         }
@@ -463,18 +495,20 @@ class EntityInspector {
                     }
                 }
 
-                // Update display
-                const row = document.querySelector(`[data-entity-id="${pos.entityId}"]`);
-                if (row) {
-                    const posEl = row.querySelector('.col-pos');
-                    if (posEl) {
-                        posEl.textContent = this.formatPosition(entity.position);
+                // Update display (skip if entity list paused)
+                if (!this.entityListPaused) {
+                    const row = document.querySelector(`[data-entity-id="${pos.entityId}"]`);
+                    if (row) {
+                        const posEl = row.querySelector('.col-pos');
+                        if (posEl) {
+                            posEl.textContent = this.formatPosition(entity.position);
+                        }
                     }
                 }
             }
         });
 
-        // Update inspector if showing position (skip only if manually paused)
+        // Update inspector if showing position (skip if paused)
         if (this.selectedEntityId && this.entities.has(this.selectedEntityId) && !this.inspectorPaused) {
             this.renderInspector();
         }
@@ -1200,44 +1234,141 @@ class EntityInspector {
         localStorage.setItem('inspector-header-collapsed', this.headerCollapsed);
     }
 
+    initializePauseState() {
+        // Set initial UI state for all pause buttons (all paused by default)
+        this.updateEntityListPauseUI();
+        this.updateInspectorPauseUI();
+        this.updatePacketLogPauseUI();
+        this.updateLiveChangesPauseUI();
+        this.updateGlobalPauseUI();
+        this.updateExpandableStates();
+    }
+
+    toggleEntityListPause() {
+        this.entityListPaused = !this.entityListPaused;
+        this.updateEntityListPauseUI();
+        this.updateGlobalPauseUI();
+
+        // Refresh entity list when resumed
+        if (!this.entityListPaused) {
+            this.renderEntityList();
+            this.updateEntityCount();
+        }
+
+        this.log(`Entity list ${this.entityListPaused ? 'paused' : 'resumed'}`, 'info');
+    }
+
     toggleInspectorPause() {
         this.inspectorPaused = !this.inspectorPaused;
-
-        // Update UI
-        if (this.inspectorPauseBtn) {
-            this.inspectorPauseBtn.classList.toggle('active', this.inspectorPaused);
-        }
-        if (this.inspectorPauseIcon) {
-            this.inspectorPauseIcon.textContent = this.inspectorPaused ? '>' : '||';
-        }
-        if (this.inspectorPauseLabel) {
-            this.inspectorPauseLabel.textContent = this.inspectorPaused ? 'RESUME' : 'PAUSE';
-        }
-
-        // Update expandable button states
+        this.updateInspectorPauseUI();
         this.updateExpandableStates();
+        this.updateGlobalPauseUI();
+
+        // Refresh inspector when resumed
+        if (!this.inspectorPaused) {
+            this.renderInspector();
+        }
 
         this.log(`Inspector ${this.inspectorPaused ? 'paused' : 'resumed'}`, 'info');
     }
 
     togglePacketLogPause() {
         this.packetLogPaused = !this.packetLogPaused;
+        this.updatePacketLogPauseUI();
+        this.updateGlobalPauseUI();
 
-        // Update UI
+        // Render to show accumulated packets
+        this.renderPacketLog();
+
+        // Sync with server
+        this.send('SET_PAUSED', { paused: this.packetLogPaused });
+
+        this.log(`Packet log ${this.packetLogPaused ? 'paused' : 'resumed'}`, 'info');
+    }
+
+    toggleGlobalPause() {
+        // If any panel is running, pause all. If all are paused, resume all.
+        const anyRunning = !this.entityListPaused || !this.inspectorPaused || !this.packetLogPaused || !this.liveChangesPaused;
+
+        this.entityListPaused = anyRunning;
+        this.inspectorPaused = anyRunning;
+        this.packetLogPaused = anyRunning;
+        this.liveChangesPaused = anyRunning;
+
+        this.updateEntityListPauseUI();
+        this.updateInspectorPauseUI();
+        this.updatePacketLogPauseUI();
+        this.updateLiveChangesPauseUI();
+        this.updateExpandableStates();
+        this.updateGlobalPauseUI();
+
+        // Sync packet log with server
+        this.send('SET_PAUSED', { paused: this.packetLogPaused });
+
+        // Refresh panels when resumed
+        if (!anyRunning) {
+            this.renderEntityList();
+            this.updateEntityCount();
+            this.renderInspector();
+            this.renderPacketLog();
+            this.globalChanges = []; // Clear old changes when resuming
+            this.renderLiveChanges();
+        }
+
+        this.log(`All panels ${anyRunning ? 'paused' : 'resumed'}`, 'info');
+    }
+
+    updateEntityListPauseUI() {
+        if (this.entityListPauseBtn) {
+            this.entityListPauseBtn.classList.toggle('paused', this.entityListPaused);
+        }
+        if (this.entityListPauseIcon) {
+            this.entityListPauseIcon.textContent = this.entityListPaused ? '▶' : '||';
+        }
+        const label = document.getElementById('entity-list-pause-label');
+        if (label) {
+            label.textContent = this.entityListPaused ? 'PLAY' : 'PAUSE';
+        }
+    }
+
+    updateInspectorPauseUI() {
+        if (this.inspectorPauseBtnHeader) {
+            this.inspectorPauseBtnHeader.classList.toggle('paused', this.inspectorPaused);
+        }
+        if (this.inspectorPauseIconHeader) {
+            this.inspectorPauseIconHeader.textContent = this.inspectorPaused ? '▶' : '||';
+        }
+        const label = document.getElementById('inspector-pause-label-header');
+        if (label) {
+            label.textContent = this.inspectorPaused ? 'PLAY' : 'PAUSE';
+        }
+    }
+
+    updatePacketLogPauseUI() {
         if (this.packetPauseIcon) {
-            this.packetPauseIcon.textContent = this.packetLogPaused ? '>' : '||';
+            this.packetPauseIcon.textContent = this.packetLogPaused ? '▶' : '||';
         }
         if (this.packetPauseBtn) {
             this.packetPauseBtn.classList.toggle('active', this.packetLogPaused);
         }
+        const label = document.getElementById('packet-pause-label');
+        if (label) {
+            label.textContent = this.packetLogPaused ? 'PLAY' : 'PAUSE';
+        }
+    }
 
-        // Render to show accumulated packets (when pauseOnExpand prevented updates)
-        this.renderPacketLog();
-
-        // Sync with server so it stops caching new packets
-        this.send('SET_PAUSED', { paused: this.packetLogPaused });
-
-        this.log(`Packet log ${this.packetLogPaused ? 'paused' : 'resumed'}`, 'info');
+    updateGlobalPauseUI() {
+        const allPaused = this.entityListPaused && this.inspectorPaused && this.packetLogPaused && this.liveChangesPaused;
+        if (this.globalPauseBtn) {
+            this.globalPauseBtn.classList.toggle('active', allPaused);
+        }
+        if (this.globalPauseIcon) {
+            // Show ▶ when paused (click to play), || when running (click to pause)
+            this.globalPauseIcon.textContent = allPaused ? '▶' : '||';
+        }
+        if (this.globalPauseLabel) {
+            this.globalPauseLabel.textContent = allPaused ? 'RESUME ALL' : 'PAUSE ALL';
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1393,6 +1524,27 @@ class EntityInspector {
             });
         });
 
+        // Add collapse toggle handlers for JSON tree
+        // Alt+Click expands/collapses all descendants recursively
+        this.inspectorEl.querySelectorAll('.collapsible').forEach(row => {
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const children = row.nextElementSibling;
+                const toggle = row.querySelector('.collapse-toggle');
+                const willCollapse = !row.classList.contains('collapsed');
+
+                if (e.altKey) {
+                    // Alt+Click: expand/collapse all descendants
+                    this.setCollapseStateRecursive(row, willCollapse);
+                } else {
+                    // Normal click: toggle just this item
+                    row.classList.toggle('collapsed');
+                    if (children) children.classList.toggle('collapsed');
+                    toggle.textContent = willCollapse ? '▶' : '▼';
+                }
+            });
+        });
+
         // Update expandable button states based on pause state
         this.updateExpandableStates();
     }
@@ -1407,6 +1559,32 @@ class EntityInspector {
             el.classList.toggle('disabled', !canExpand);
             el.title = canExpand ? 'Click to expand' : 'Enable "Auto-pause on Expand" or pause manually';
         });
+    }
+
+    /**
+     * Recursively set collapse state on an element and all its descendants.
+     * Used for Alt+Click expand/collapse all functionality.
+     */
+    setCollapseStateRecursive(row, collapse) {
+        const children = row.nextElementSibling;
+        const toggle = row.querySelector('.collapse-toggle');
+
+        // Set state on this element
+        row.classList.toggle('collapsed', collapse);
+        if (children) children.classList.toggle('collapsed', collapse);
+        if (toggle) toggle.textContent = collapse ? '▶' : '▼';
+
+        // Recursively set state on all nested collapsibles
+        if (children) {
+            children.querySelectorAll('.collapsible').forEach(nestedRow => {
+                const nestedChildren = nestedRow.nextElementSibling;
+                const nestedToggle = nestedRow.querySelector('.collapse-toggle');
+
+                nestedRow.classList.toggle('collapsed', collapse);
+                if (nestedChildren) nestedChildren.classList.toggle('collapsed', collapse);
+                if (nestedToggle) nestedToggle.textContent = collapse ? '▶' : '▼';
+            });
+        }
     }
 
     renderComponent(name, data) {
@@ -1459,23 +1637,53 @@ class EntityInspector {
                 return `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value">${typeName}</span></div>`;
             }
 
+            // Collapsible object: always collapsed by default (component header is the root)
+            const collapseClass = 'collapsed';
+            const toggleIcon = '▶';
+            const summary = `{...${entries.length} keys}`;
+
             const typeLabel = value._type ? ` <span class="type-hint">${escapeHtml(value._type)}</span>` : '';
-            let html = `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value">{${typeLabel}</span></div>`;
+            let childrenHtml = '';
             for (const [k, v] of entries) {
-                html += this.renderProperty(k, v, depth + 1, currentPath);
+                childrenHtml += this.renderProperty(k, v, depth + 1, currentPath);
             }
-            html += `<div class="prop-row" ${indentStyle}><span class="prop-value">}</span></div>`;
+
+            let html = `<div class="prop-row collapsible ${collapseClass}" ${indentStyle} data-path="${escapeHtml(currentPath)}">
+                <span class="collapse-toggle">${toggleIcon}</span>
+                <span class="prop-key">${safeKey}:</span>
+                <span class="prop-value">{${typeLabel}</span>
+                <span class="collapse-summary">${summary}</span>
+            </div>
+            <div class="prop-children ${collapseClass}">
+                ${childrenHtml}
+                <div class="prop-row" ${indentStyle}><span class="prop-value">}</span></div>
+            </div>`;
             return html;
         }
 
         if (Array.isArray(value)) {
             // Check if array contains objects (render each on separate line) or primitives
             if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
-                let html = `<div class="prop-row" ${indentStyle}><span class="prop-key">${safeKey}:</span><span class="prop-value">[</span></div>`;
+                // Collapsible array: always collapsed by default (component header is the root)
+                const collapseClass = 'collapsed';
+                const toggleIcon = '▶';
+                const summary = `[...${value.length} items]`;
+
+                let childrenHtml = '';
                 value.forEach((item, idx) => {
-                    html += this.renderProperty(String(idx), item, depth + 1, currentPath);
+                    childrenHtml += this.renderProperty(String(idx), item, depth + 1, currentPath);
                 });
-                html += `<div class="prop-row" ${indentStyle}><span class="prop-value">]</span></div>`;
+
+                let html = `<div class="prop-row collapsible ${collapseClass}" ${indentStyle} data-path="${escapeHtml(currentPath)}">
+                    <span class="collapse-toggle">${toggleIcon}</span>
+                    <span class="prop-key">${safeKey}:</span>
+                    <span class="prop-value">[</span>
+                    <span class="collapse-summary">${summary}</span>
+                </div>
+                <div class="prop-children ${collapseClass}">
+                    ${childrenHtml}
+                    <div class="prop-row" ${indentStyle}><span class="prop-value">]</span></div>
+                </div>`;
                 return html;
             }
             const formatted = escapeHtml(value.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', '));
@@ -1683,6 +1891,8 @@ class EntityInspector {
      * Track component changes globally across all entities.
      */
     trackComponentChanges(entityId, changedComponents) {
+        // Skip if paused
+        if (this.liveChangesPaused) return;
         if (!changedComponents || !changedComponents.length) return;
 
         const entity = this.entities.get(entityId);
@@ -1706,24 +1916,35 @@ class EntityInspector {
             .filter(c => now - c.timestamp < this.chipRetentionMs)
             .slice(-this.maxGlobalChips * 2); // Keep some buffer
 
-        this.updateChangedComponentsHeader();
+        this.renderLiveChanges();
     }
 
     /**
-     * Update the global changed components header display.
+     * Render the live changes panel.
      */
-    updateChangedComponentsHeader() {
+    renderLiveChanges() {
+        if (!this.liveChangesContent) return;
+
+        if (this.liveChangesPaused) {
+            this.liveChangesContent.innerHTML = `
+                <div class="empty-state small">
+                    <pre>Paused - Click PLAY to start tracking</pre>
+                </div>`;
+            return;
+        }
+
         const now = Date.now();
 
         // Filter to recent changes only
         const recent = this.globalChanges.filter(c => now - c.timestamp < this.chipRetentionMs);
 
         if (recent.length === 0) {
-            this.changedHeaderEl.classList.add('hidden');
+            this.liveChangesContent.innerHTML = `
+                <div class="empty-state small">
+                    <pre>Waiting for component changes...</pre>
+                </div>`;
             return;
         }
-
-        this.changedHeaderEl.classList.remove('hidden');
 
         // Deduplicate by entity+component (keep most recent), then take last N
         const seen = new Map();
@@ -1732,9 +1953,53 @@ class EntityInspector {
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(0, this.maxGlobalChips);
 
-        this.componentChipsEl.innerHTML = uniqueChanges
-            .map(c => `<span class="component-chip" title="${escapeHtml(c.entityName)} #${c.entityId}">${escapeHtml(c.entityName)}.${escapeHtml(c.componentName)}</span>`)
+        this.liveChangesContent.innerHTML = uniqueChanges
+            .map(c => `
+                <div class="live-change-chip" data-entity-id="${c.entityId}" title="Click to select entity">
+                    <span class="entity-name">${escapeHtml(c.entityName)}</span>
+                    <span class="component-name">${escapeHtml(c.componentName)}</span>
+                </div>
+            `)
             .join('');
+
+        // Add click handlers to select entity
+        this.liveChangesContent.querySelectorAll('.live-change-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const entityId = parseInt(chip.dataset.entityId);
+                this.selectEntity(entityId);
+            });
+        });
+    }
+
+    toggleLiveChangesPause() {
+        this.liveChangesPaused = !this.liveChangesPaused;
+        this.updateLiveChangesPauseUI();
+        this.updateGlobalPauseUI();
+
+        if (!this.liveChangesPaused) {
+            // Clear old changes when resuming
+            this.globalChanges = [];
+        }
+        this.renderLiveChanges();
+
+        this.log(`Live changes ${this.liveChangesPaused ? 'paused' : 'resumed'}`, 'info');
+    }
+
+    updateLiveChangesPauseUI() {
+        if (this.liveChangesPauseBtn) {
+            this.liveChangesPauseBtn.classList.toggle('paused', this.liveChangesPaused);
+        }
+        if (this.liveChangesPauseIcon) {
+            this.liveChangesPauseIcon.textContent = this.liveChangesPaused ? '▶' : '||';
+        }
+        if (this.liveChangesPauseLabel) {
+            this.liveChangesPauseLabel.textContent = this.liveChangesPaused ? 'PLAY' : 'PAUSE';
+        }
+    }
+
+    clearLiveChanges() {
+        this.globalChanges = [];
+        this.renderLiveChanges();
     }
 
     formatPosition(pos, full = false) {
@@ -1817,7 +2082,7 @@ class EntityInspector {
     }
 
     startGlobalChangesCleanup() {
-        // Periodically clean up and refresh the global changes header
+        // Periodically clean up and refresh the live changes panel
         setInterval(() => {
             const now = Date.now();
             const before = this.globalChanges.length;
@@ -1825,7 +2090,7 @@ class EntityInspector {
 
             // Refresh display if changes were removed
             if (this.globalChanges.length !== before || this.globalChanges.length > 0) {
-                this.updateChangedComponentsHeader();
+                this.renderLiveChanges();
             }
         }, 1000);
     }
@@ -1868,10 +2133,38 @@ class EntityInspector {
             });
         }
 
-        // Inspector pause button
-        if (this.inspectorPauseBtn) {
-            this.inspectorPauseBtn.addEventListener('click', () => {
+        // Global pause button (footer)
+        if (this.globalPauseBtn) {
+            this.globalPauseBtn.addEventListener('click', () => {
+                this.toggleGlobalPause();
+            });
+        }
+
+        // Entity list pause button
+        if (this.entityListPauseBtn) {
+            this.entityListPauseBtn.addEventListener('click', () => {
+                this.toggleEntityListPause();
+            });
+        }
+
+        // Inspector pause button (header)
+        if (this.inspectorPauseBtnHeader) {
+            this.inspectorPauseBtnHeader.addEventListener('click', () => {
                 this.toggleInspectorPause();
+            });
+        }
+
+        // Live changes pause button
+        if (this.liveChangesPauseBtn) {
+            this.liveChangesPauseBtn.addEventListener('click', () => {
+                this.toggleLiveChangesPause();
+            });
+        }
+
+        // Live changes clear button
+        if (this.liveChangesClearBtn) {
+            this.liveChangesClearBtn.addEventListener('click', () => {
+                this.clearLiveChanges();
             });
         }
 
@@ -1942,9 +2235,9 @@ class EntityInspector {
                     break;
 
                 case ' ':
-                    // Toggle inspector pause
+                    // Toggle global pause (all panels)
                     e.preventDefault();
-                    this.toggleInspectorPause();
+                    this.toggleGlobalPause();
                     break;
 
                 case 'h':
@@ -2024,22 +2317,31 @@ class EntityInspector {
     // ═══════════════════════════════════════════════════════════════
 
     setupAssetBrowserListeners() {
-        // Asset filter
+        // Asset filter - search as you type (server-side)
         if (this.assetFilterInput) {
+            let searchTimeout = null;
             this.assetFilterInput.addEventListener('input', (e) => {
-                this.assetFilter = e.target.value.trim();
-                if (this.searchMode === 'global' && this.assetFilter.length >= 2) {
-                    this.requestSearchAssets(this.assetFilter);
-                } else if (this.selectedCategory) {
-                    this.requestAssets(this.selectedCategory, this.assetFilter);
+                this.assetFilter = e.target.value.trim().toLowerCase();
+
+                // Debounce server search
+                if (searchTimeout) clearTimeout(searchTimeout);
+
+                if (this.assetFilter.length >= 2) {
+                    searchTimeout = setTimeout(() => {
+                        this.requestSearchAssets(this.assetFilter);
+                    }, 200);
+                } else {
+                    // Clear search results and show normal tree
+                    this.searchResults = {};
+                    this.renderAssetTree();
                 }
             });
         }
 
-        // Search mode toggle
-        if (this.searchModeToggle) {
-            this.searchModeToggle.addEventListener('click', () => {
-                this.toggleSearchMode();
+        // Expand/collapse all button
+        if (this.expandAllBtn) {
+            this.expandAllBtn.addEventListener('click', () => {
+                this.toggleExpandAll();
             });
         }
 
@@ -2051,23 +2353,18 @@ class EntityInspector {
         }
     }
 
-    toggleSearchMode() {
-        this.searchMode = this.searchMode === 'category' ? 'global' : 'category';
-        if (this.searchModeToggle) {
-            this.searchModeToggle.classList.toggle('global', this.searchMode === 'global');
-            this.searchModeToggle.title = this.searchMode === 'global'
-                ? 'Global search (click to switch to category)'
-                : 'Category filter (click to switch to global search)';
-        }
-
-        // Trigger search if filter is set
-        if (this.assetFilter) {
-            if (this.searchMode === 'global' && this.assetFilter.length >= 2) {
-                this.requestSearchAssets(this.assetFilter);
-            } else if (this.selectedCategory) {
-                this.requestAssets(this.selectedCategory, this.assetFilter);
+    toggleExpandAll() {
+        const allExpanded = this.expandedCategories.size === this.assetCategories.length;
+        if (allExpanded) {
+            // Collapse all
+            this.expandedCategories.clear();
+        } else {
+            // Expand all
+            for (const cat of this.assetCategories) {
+                this.expandedCategories.add(cat.id);
             }
         }
+        this.renderAssetTree();
     }
 
     // Request methods
@@ -2076,7 +2373,11 @@ class EntityInspector {
     }
 
     requestAssets(category, filter = null) {
-        this.send('REQUEST_ASSETS', { category, filter });
+        const data = { category };
+        if (filter) {
+            data.filter = filter;
+        }
+        this.send('REQUEST_ASSETS', data);
     }
 
     requestAssetDetail(category, assetId) {
@@ -2105,12 +2406,17 @@ class EntityInspector {
 
     handleAssetCategories(data) {
         this.assetCategories = data.categories || [];
-        this.renderAssetCategories();
+        this.renderAssetTree();
     }
 
     handleAssetList(data) {
-        this.assets = data.assets || [];
-        this.renderAssetList();
+        // Store assets for the category
+        const category = data.category;
+        if (category) {
+            this.categoryAssets[category] = data.assets || [];
+            this.loadingCategories.delete(category);
+        }
+        this.renderAssetTree();
     }
 
     handleAssetDetail(data) {
@@ -2119,8 +2425,19 @@ class EntityInspector {
     }
 
     handleSearchResults(data) {
-        this.assets = data.results || [];
-        this.renderAssetList();
+        // Search results come with category info - store them appropriately
+        const results = data.results || [];
+        // Group by category for tree display
+        const byCategory = {};
+        for (const asset of results) {
+            if (!byCategory[asset.category]) {
+                byCategory[asset.category] = [];
+            }
+            byCategory[asset.category].push(asset);
+        }
+        // Store as search results
+        this.searchResults = byCategory;
+        this.renderAssetTree();
     }
 
     handleAssetExpandResponse(data) {
@@ -2133,46 +2450,82 @@ class EntityInspector {
     }
 
     // Render methods
-    renderAssetCategories() {
-        if (!this.categoryList) return;
+    renderAssetTree() {
+        if (!this.assetTreeEl) return;
 
         if (this.assetCategories.length === 0) {
-            this.categoryList.innerHTML = `
+            this.assetTreeEl.innerHTML = `
                 <div class="empty-state small">
                     <pre>No categories found</pre>
                 </div>`;
             return;
         }
 
-        // Group by package
-        const groups = {};
-        for (const cat of this.assetCategories) {
-            const group = cat.packageGroup || 'Other';
-            if (!groups[group]) {
-                groups[group] = [];
-            }
-            groups[group].push(cat);
-        }
-
+        const filter = this.assetFilter;
+        const hasSearchResults = filter && Object.keys(this.searchResults).length > 0;
         let html = '';
-        for (const [groupName, categories] of Object.entries(groups)) {
+
+        // Sort categories by display name
+        const sortedCategories = [...this.assetCategories].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName)
+        );
+
+        for (const cat of sortedCategories) {
+            const isExpanded = this.expandedCategories.has(cat.id);
+            const isLoading = this.loadingCategories.has(cat.id);
+
+            // Use search results when filtering, otherwise use loaded assets
+            let displayAssets = [];
+            let matchCount = 0;
+
+            if (hasSearchResults) {
+                // Use server search results - only show categories with results
+                const searchAssets = this.searchResults[cat.id] || [];
+                if (searchAssets.length === 0) {
+                    continue; // Skip categories with no search results
+                }
+                displayAssets = [...searchAssets].sort((a, b) => a.id.localeCompare(b.id));
+                matchCount = displayAssets.length;
+            } else {
+                // Normal browsing - use loaded assets
+                const assets = this.categoryAssets[cat.id] || [];
+                displayAssets = [...assets].sort((a, b) => a.id.localeCompare(b.id));
+            }
+
+            // Auto-expand categories with search results
+            const showExpanded = hasSearchResults ? true : isExpanded;
+
             html += `
-                <div class="category-group">
-                    <div class="category-group-header">
-                        <span class="category-group-toggle">▼</span>
-                        ${escapeHtml(groupName)}
+                <div class="tree-category ${showExpanded ? '' : 'collapsed'}" data-category="${escapeHtml(cat.id)}">
+                    <div class="tree-category-header ${hasSearchResults ? 'has-matches' : ''}">
+                        <span class="tree-category-toggle">▼</span>
+                        <span class="tree-category-name">${escapeHtml(cat.displayName)}</span>
+                        ${hasSearchResults
+                            ? `<span class="tree-category-match-count">${matchCount}</span>`
+                            : `<span class="tree-category-count">${cat.count}</span>`
+                        }
                     </div>
-                    <div class="category-items">
+                    <div class="tree-assets">
             `;
 
-            for (const cat of categories) {
-                const isSelected = this.selectedCategory === cat.id;
-                html += `
-                    <div class="category-item ${isSelected ? 'selected' : ''}" data-category="${escapeHtml(cat.id)}">
-                        <span>${escapeHtml(cat.displayName)}</span>
-                        <span class="category-count">${cat.count}</span>
-                    </div>
-                `;
+            if (!hasSearchResults && isLoading) {
+                html += `<div class="tree-assets-loading">Loading...</div>`;
+            } else if (!hasSearchResults && displayAssets.length === 0 && showExpanded) {
+                // Need to load assets
+                html += `<div class="tree-assets-loading">Loading...</div>`;
+            } else {
+                // Show assets
+                for (const asset of displayAssets) {
+                    const isSelected = this.selectedAsset === asset.id && this.selectedCategory === cat.id;
+                    html += `
+                        <div class="tree-asset ${isSelected ? 'selected' : ''} ${hasSearchResults ? 'match' : ''}"
+                             data-asset-id="${escapeHtml(asset.id)}"
+                             data-category="${escapeHtml(cat.id)}">
+                            <span class="tree-asset-id">${escapeHtml(asset.id)}</span>
+                            <span class="tree-asset-type">${escapeHtml(asset.typeHint || '')}</span>
+                        </div>
+                    `;
+                }
             }
 
             html += `
@@ -2181,66 +2534,59 @@ class EntityInspector {
             `;
         }
 
-        this.categoryList.innerHTML = html;
-
-        // Add click handlers
-        this.categoryList.querySelectorAll('.category-group-header').forEach(header => {
-            header.addEventListener('click', () => {
-                header.parentElement.classList.toggle('collapsed');
-            });
-        });
-
-        this.categoryList.querySelectorAll('.category-item').forEach(item => {
-            item.addEventListener('click', () => {
-                this.selectCategory(item.dataset.category);
-            });
-        });
-    }
-
-    selectCategory(categoryId) {
-        this.selectedCategory = categoryId;
-        this.selectedAsset = null;
-        this.assetDetail = null;
-
-        // Update selection UI
-        this.categoryList.querySelectorAll('.category-item').forEach(item => {
-            item.classList.toggle('selected', item.dataset.category === categoryId);
-        });
-
-        // Request assets
-        this.requestAssets(categoryId, this.assetFilter);
-        this.renderAssetDetail(); // Clear detail
-    }
-
-    renderAssetList() {
-        if (!this.assetListEl) return;
-
-        if (this.assets.length === 0) {
-            this.assetListEl.innerHTML = `
-                <div class="empty-state small">
-                    <pre>${this.selectedCategory ? 'No assets found' : 'Select a category'}</pre>
-                </div>`;
-            return;
+        if (!html) {
+            html = `<div class="empty-state small"><pre>No matching assets</pre></div>`;
         }
 
-        const html = this.assets.map(asset => {
-            const isSelected = this.selectedAsset === asset.id;
-            return `
-                <div class="asset-item ${isSelected ? 'selected' : ''}" data-asset-id="${escapeHtml(asset.id)}" data-category="${escapeHtml(asset.category)}">
-                    <span class="asset-id">${escapeHtml(asset.id)}</span>
-                    <span class="asset-type-hint">${escapeHtml(asset.typeHint || '')}</span>
-                </div>
-            `;
-        }).join('');
+        this.assetTreeEl.innerHTML = html;
 
-        this.assetListEl.innerHTML = html;
+        // Add click handlers for category headers
+        this.assetTreeEl.querySelectorAll('.tree-category-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                const categoryEl = header.parentElement;
+                const categoryId = categoryEl.dataset.category;
+                this.toggleCategory(categoryId);
+            });
+        });
 
-        // Add click handlers
-        this.assetListEl.querySelectorAll('.asset-item').forEach(item => {
+        // Add click handlers for assets
+        this.assetTreeEl.querySelectorAll('.tree-asset').forEach(item => {
             item.addEventListener('click', () => {
                 this.selectAsset(item.dataset.category, item.dataset.assetId);
             });
         });
+
+        // Load assets for expanded categories that don't have data yet (but not during search)
+        if (!hasSearchResults) {
+            for (const cat of this.assetCategories) {
+                const isExpanded = this.expandedCategories.has(cat.id);
+                const hasAssets = this.categoryAssets[cat.id] && this.categoryAssets[cat.id].length > 0;
+                const isLoading = this.loadingCategories.has(cat.id);
+
+                if (isExpanded && !hasAssets && !isLoading) {
+                    this.loadCategoryAssets(cat.id);
+                }
+            }
+        }
+    }
+
+    toggleCategory(categoryId) {
+        if (this.expandedCategories.has(categoryId)) {
+            this.expandedCategories.delete(categoryId);
+        } else {
+            this.expandedCategories.add(categoryId);
+            // Load assets if not already loaded
+            if (!this.categoryAssets[categoryId] || this.categoryAssets[categoryId].length === 0) {
+                this.loadCategoryAssets(categoryId);
+            }
+        }
+        this.renderAssetTree();
+    }
+
+    loadCategoryAssets(categoryId) {
+        if (this.loadingCategories.has(categoryId)) return;
+        this.loadingCategories.add(categoryId);
+        this.requestAssets(categoryId, null);
     }
 
     selectAsset(category, assetId) {
@@ -2248,8 +2594,9 @@ class EntityInspector {
         this.selectedCategory = category;
 
         // Update selection UI
-        this.assetListEl.querySelectorAll('.asset-item').forEach(item => {
-            item.classList.toggle('selected', item.dataset.assetId === assetId);
+        this.assetTreeEl.querySelectorAll('.tree-asset').forEach(item => {
+            const matches = item.dataset.assetId === assetId && item.dataset.category === category;
+            item.classList.toggle('selected', matches);
         });
 
         // Request detail
@@ -2302,6 +2649,27 @@ class EntityInspector {
                     });
                     el.classList.add('loading');
                     el.querySelector('.expand-icon').textContent = '...';
+                }
+            });
+        });
+
+        // Add collapse toggle handlers for JSON tree
+        // Alt+Click expands/collapses all descendants recursively
+        this.assetDetailEl.querySelectorAll('.collapsible').forEach(row => {
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const children = row.nextElementSibling;
+                const toggle = row.querySelector('.collapse-toggle');
+                const willCollapse = !row.classList.contains('collapsed');
+
+                if (e.altKey) {
+                    // Alt+Click: expand/collapse all descendants
+                    this.setCollapseStateRecursive(row, willCollapse);
+                } else {
+                    // Normal click: toggle just this item
+                    row.classList.toggle('collapsed');
+                    if (children) children.classList.toggle('collapsed');
+                    toggle.textContent = willCollapse ? '▶' : '▼';
                 }
             });
         });
@@ -2593,12 +2961,24 @@ class EntityInspector {
         this.send('REQUEST_PUBLISH_PATCH', { filename, patchJson });
     }
 
-    addToHistory(filename, operation) {
+    requestPublishPatch(filename, patchJson) {
+        // Direct publish without modal validation (for republishing from history)
+        if (!patchJson || patchJson.trim() === '') {
+            this.log('Cannot republish: empty patch content', 'error');
+            return;
+        }
+        this.send('REQUEST_PUBLISH_PATCH', { filename, patchJson });
+        this.log(`Republishing: ${filename}`, 'info');
+    }
+
+    addToHistory(filename, operation, patchContent = null) {
         const entry = {
+            id: Date.now() + Math.random(),
             filename,
             baseAssetPath: this.patchBasePath?.value || 'unknown',
             timestamp: Date.now(),
-            operation
+            operation,
+            content: patchContent || this.getGeneratedPatch()
         };
 
         this.sessionHistory.unshift(entry);
@@ -2607,6 +2987,14 @@ class EntityInspector {
         }
 
         this.renderHistory();
+    }
+
+    getGeneratedPatch() {
+        // Get the current patch content from the preview
+        if (this.patchPreview) {
+            return this.patchPreview.textContent;
+        }
+        return null;
     }
 
     renderHistory() {
@@ -2620,10 +3008,10 @@ class EntityInspector {
             return;
         }
 
-        const html = this.sessionHistory.map(entry => {
+        const html = this.sessionHistory.map((entry, index) => {
             const time = new Date(entry.timestamp).toLocaleTimeString();
             return `
-                <div class="history-item">
+                <div class="history-item" data-index="${index}">
                     <div class="filename">${escapeHtml(entry.filename)}</div>
                     <div class="meta">
                         <span class="time">${time}</span>
@@ -2634,6 +3022,92 @@ class EntityInspector {
         }).join('');
 
         this.historyList.innerHTML = html;
+
+        // Add click handlers
+        this.historyList.querySelectorAll('.history-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const index = parseInt(item.dataset.index);
+                this.showHistoryDetail(index);
+            });
+        });
+    }
+
+    showHistoryDetail(index) {
+        const entry = this.sessionHistory[index];
+        if (!entry) return;
+
+        // Create modal HTML
+        const modalHtml = `
+            <div class="history-modal-overlay" id="history-modal-overlay">
+                <div class="history-modal">
+                    <div class="history-modal-header">
+                        <span class="history-modal-title">${escapeHtml(entry.filename)}</span>
+                        <button class="history-modal-close" id="history-modal-close">×</button>
+                    </div>
+                    <div class="history-modal-meta">
+                        <span>Asset: ${escapeHtml(entry.baseAssetPath)}</span>
+                        <span>Operation: ${entry.operation}</span>
+                        <span>Time: ${new Date(entry.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div class="history-modal-content">
+                        <textarea id="history-patch-content" spellcheck="false">${escapeHtml(entry.content || 'No content available')}</textarea>
+                    </div>
+                    <div class="history-modal-actions">
+                        <button class="btn-danger" id="history-delete-btn">Delete</button>
+                        <button class="btn-secondary" id="history-copy-btn">Copy</button>
+                        <button class="btn-primary" id="history-republish-btn">Republish</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to DOM
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Get modal elements
+        const overlay = document.getElementById('history-modal-overlay');
+        const closeBtn = document.getElementById('history-modal-close');
+        const deleteBtn = document.getElementById('history-delete-btn');
+        const copyBtn = document.getElementById('history-copy-btn');
+        const republishBtn = document.getElementById('history-republish-btn');
+        const contentArea = document.getElementById('history-patch-content');
+
+        // Close modal function
+        const closeModal = () => overlay.remove();
+
+        // Event handlers
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+        closeBtn.addEventListener('click', closeModal);
+
+        deleteBtn.addEventListener('click', () => {
+            this.sessionHistory.splice(index, 1);
+            this.renderHistory();
+            closeModal();
+            this.log(`Deleted patch from history: ${entry.filename}`, 'info');
+        });
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(contentArea.value);
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+        });
+
+        republishBtn.addEventListener('click', () => {
+            const updatedContent = contentArea.value;
+            this.requestPublishPatch(entry.filename, updatedContent);
+            closeModal();
+        });
+
+        // Close on Escape
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
     }
 
     // Helper to set nested value in object
@@ -2717,9 +3191,56 @@ function initResize() {
     });
 }
 
+// Asset browser resize functionality
+function initAssetResize() {
+    const handle = document.getElementById('asset-resize-handle');
+    const browser = document.querySelector('.asset-browser-panel');
+    if (!handle || !browser) return;
+
+    // Load saved width
+    const savedWidth = localStorage.getItem('asset-browser-width');
+    if (savedWidth) {
+        browser.style.width = savedWidth + 'px';
+    }
+
+    let isDragging = false;
+    let startX, startWidth;
+
+    handle.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startWidth = browser.offsetWidth;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        // Calculate new width (dragging right increases browser width)
+        const delta = e.clientX - startX;
+        const newWidth = Math.max(200, Math.min(startWidth + delta, window.innerWidth * 0.5));
+        browser.style.width = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // Save width
+        localStorage.setItem('asset-browser-width', browser.offsetWidth);
+    });
+}
+
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initResize();
+    initAssetResize();
     window.inspector = new EntityInspector();
 });

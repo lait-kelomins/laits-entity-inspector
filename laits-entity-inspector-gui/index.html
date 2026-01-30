@@ -52,13 +52,6 @@
             <button class="tab-btn" data-tab="assets">[A] ASSETS</button>
         </div>
 
-        <!-- Global Changes Header -->
-        <div id="changed-components-header" class="changed-components-header hidden">
-            <div class="header-label">LIVE CHANGES</div>
-            <div class="component-chips-container">
-                <div class="component-chips" id="component-chips"></div>
-            </div>
-        </div>
 
         <!-- Tab Content: Entities -->
         <div class="tab-content active" id="tab-entities">
@@ -68,6 +61,10 @@
             <section class="panel entity-list-panel" id="entity-list-panel">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ ENTITY LIST ]─────────────────────────┐</span>
+                    <button class="panel-pause-btn paused" id="entity-list-pause-btn" title="Pause/Resume Entity Updates">
+                        <span id="entity-list-pause-icon">▶</span>
+                        <span id="entity-list-pause-label">PLAY</span>
+                    </button>
                 </div>
                 <div class="search-box">
                     <span class="prompt">&gt;</span>
@@ -101,6 +98,10 @@
             <section class="panel inspector-panel" id="inspector-panel">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ COMPONENT INSPECTOR ]─────────────────┐</span>
+                    <button class="panel-pause-btn paused" id="inspector-pause-btn-header" title="Pause/Resume Component Updates">
+                        <span id="inspector-pause-icon-header">▶</span>
+                        <span id="inspector-pause-label-header">PLAY</span>
+                    </button>
                     <button class="copy-btn" id="inspector-copy-btn" title="Copy as JSON">&#128203;</button>
                 </div>
                 <div class="component-filter-box">
@@ -127,48 +128,38 @@
         <!-- Tab Content: Assets -->
         <div class="tab-content" id="tab-assets">
             <div class="assets-layout">
-                <!-- Left: Categories Panel -->
-                <section class="panel categories-panel">
+                <!-- Left: Asset Browser (Tree) -->
+                <section class="panel asset-browser-panel">
                     <div class="panel-header">
-                        <span class="panel-title">┌─[ CATEGORIES ]──────────────┐</span>
+                        <span class="panel-title">┌─[ ASSET BROWSER ]───────────┐</span>
                     </div>
-                    <div class="category-list" id="category-list">
+                    <div class="search-box">
+                        <span class="prompt">/</span>
+                        <input type="text" id="asset-filter" placeholder="Search assets..." autocomplete="off">
+                        <button class="expand-all-btn" id="expand-all-btn" title="Expand/Collapse all">⊞</button>
+                    </div>
+                    <div class="asset-tree" id="asset-tree">
                         <div class="empty-state">
-                            <pre>Loading categories...</pre>
+                            <pre>Loading assets...</pre>
                         </div>
                     </div>
                 </section>
 
-                <!-- Center: Asset List + Detail -->
-                <div class="assets-main">
-                    <section class="panel asset-list-panel">
-                        <div class="panel-header">
-                            <span class="panel-title">┌─[ ASSET LIST ]──────────────┐</span>
-                        </div>
-                        <div class="search-box">
-                            <span class="prompt">/</span>
-                            <input type="text" id="asset-filter" placeholder="Filter assets..." autocomplete="off">
-                            <button class="search-mode-toggle" id="search-mode-toggle" title="Toggle category/global search">⚙</button>
-                        </div>
-                        <div class="asset-list" id="asset-list">
-                            <div class="empty-state">
-                                <pre>Select a category</pre>
-                            </div>
-                        </div>
-                    </section>
+                <!-- Resize Handle -->
+                <div class="resize-handle" id="asset-resize-handle"></div>
 
-                    <section class="panel asset-detail-panel">
-                        <div class="panel-header">
-                            <span class="panel-title">┌─[ ASSET DETAIL ]────────────┐</span>
-                            <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
+                <!-- Center: Asset Detail -->
+                <section class="panel asset-detail-panel">
+                    <div class="panel-header">
+                        <span class="panel-title">┌─[ ASSET DETAIL ]────────────┐</span>
+                        <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
+                    </div>
+                    <div class="asset-detail" id="asset-detail">
+                        <div class="empty-state">
+                            <pre>Select an asset to view details</pre>
                         </div>
-                        <div class="asset-detail" id="asset-detail">
-                            <div class="empty-state">
-                                <pre>Select an asset to view details</pre>
-                            </div>
-                        </div>
-                    </section>
-                </div>
+                    </div>
+                </section>
 
                 <!-- Right: History Sidebar -->
                 <aside class="history-sidebar">
@@ -191,8 +182,9 @@
                 </span>
                 <div class="packet-log-controls">
                     <button class="control-btn" id="packet-fullscreen-btn" title="Toggle Fullscreen (F)">⤢</button>
-                    <button class="control-btn" id="packet-pause-btn" title="Pause/Resume">
-                        <span id="packet-pause-icon">||</span>
+                    <button class="control-btn packet-pause-btn active" id="packet-pause-btn" title="Pause/Resume">
+                        <span id="packet-pause-icon">▶</span>
+                        <span id="packet-pause-label">PLAY</span>
                     </button>
                     <button class="control-btn" id="packet-clear-btn" title="Clear Log">X</button>
                     <input type="text" id="packet-filter-input" placeholder="Filter packets..." autocomplete="off">
@@ -218,6 +210,23 @@
             </div>
         </section>
 
+        <!-- Live Changes Panel -->
+        <section class="panel live-changes-panel" id="live-changes-panel">
+            <div class="live-changes-header">
+                <span class="panel-title">[ LIVE CHANGES ]</span>
+                <button class="panel-pause-btn paused" id="live-changes-pause-btn" title="Pause/Resume Live Changes">
+                    <span id="live-changes-pause-icon">▶</span>
+                    <span id="live-changes-pause-label">PLAY</span>
+                </button>
+                <button class="control-btn" id="live-changes-clear-btn" title="Clear">X</button>
+            </div>
+            <div class="live-changes-content" id="live-changes-content">
+                <div class="empty-state small">
+                    <pre>Paused - Click PLAY to start tracking</pre>
+                </div>
+            </div>
+        </section>
+
         <!-- Footer -->
         <footer class="footer">
             <div class="footer-left">
@@ -230,9 +239,9 @@
                 <span class="key">[R]</span> Reconnect
             </div>
             <div class="footer-center">
-                <button class="pause-btn" id="inspector-pause-btn" title="Pause/Resume Updates (Space)">
-                    <span id="inspector-pause-icon">||</span>
-                    <span id="inspector-pause-label">PAUSE</span>
+                <button class="pause-btn active" id="global-pause-btn" title="Pause/Resume All Updates (Space)">
+                    <span id="global-pause-icon">▶</span>
+                    <span id="global-pause-label">RESUME ALL</span>
                 </button>
             </div>
             <div class="footer-right">
