@@ -12,6 +12,7 @@ public enum MessageType {
     POSITION_BATCH, // Batched position updates
     PACKET_LOG,     // Network packet captured
     CONFIG_SYNC,    // Current configuration state
+    TIME_SYNC,      // Periodic game time and rate sync
 
     // Client → Server messages (for interactive transports)
     REQUEST_SNAPSHOT,  // Request full world snapshot

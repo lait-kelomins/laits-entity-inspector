@@ -92,6 +92,14 @@ public interface DataTransport {
         // Optional - not all transports support config sync
     }
 
+    /**
+     * Send game time sync to all clients.
+     * Used to keep client time interpolation accurate when game time rate changes.
+     */
+    default void sendTimeSync(Long gameTimeEpochMilli, Double gameTimeRate) {
+        // Optional - not all transports need time sync
+    }
+
     // Listener for request/response transports
 
     /**

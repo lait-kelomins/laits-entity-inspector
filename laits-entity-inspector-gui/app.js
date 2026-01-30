@@ -56,6 +56,7 @@ class EntityInspector {
         // Game time tracking (for alarm remaining time calculations)
         this.gameTimeEpochMilli = null;  // Current game time from server
         this.gameTimeReceivedAt = null;   // Wall-clock time when we received game time
+        this.gameTimeRate = null;         // Game seconds per real second (e.g., 72 = 72x speed)
         this.alarmsUpdateInterval = null; // Timer for live alarm updates
 
         // Global changed components tracking (across all entities)
@@ -347,6 +348,9 @@ class EntityInspector {
                 case 'CONFIG_SYNC':
                     this.handleConfigSync(msg.data);
                     break;
+                case 'TIME_SYNC':
+                    this.handleTimeSync(msg.data);
+                    break;
                 case 'EXPAND_RESPONSE':
                     this.handleExpandResponse(msg.data);
                     break;
@@ -411,6 +415,9 @@ class EntityInspector {
         if (data.gameTimeEpochMilli) {
             this.gameTimeEpochMilli = data.gameTimeEpochMilli;
             this.gameTimeReceivedAt = Date.now();
+        }
+        if (data.gameTimeRate) {
+            this.gameTimeRate = data.gameTimeRate;
         }
 
         if (data.entities && Array.isArray(data.entities)) {
@@ -1074,6 +1081,20 @@ class EntityInspector {
         localStorage.setItem('inspector-server-config', JSON.stringify(data));
         this.log('Received config sync from server', 'connect');
         this.populateSettingsForm();
+    }
+
+    /**
+     * Handle TIME_SYNC message - updates game time reference for alarm calculations.
+     * Sent periodically by server to keep client interpolation accurate when game time rate changes.
+     */
+    handleTimeSync(data) {
+        if (data.gameTimeEpochMilli !== undefined && data.gameTimeEpochMilli !== null) {
+            this.gameTimeEpochMilli = data.gameTimeEpochMilli;
+            this.gameTimeReceivedAt = Date.now();
+        }
+        if (data.gameTimeRate !== undefined && data.gameTimeRate !== null) {
+            this.gameTimeRate = data.gameTimeRate;
+        }
     }
 
     /**
@@ -1981,10 +2002,20 @@ class EntityInspector {
         if (this.gameTimeEpochMilli === null || this.gameTimeReceivedAt === null) {
             return null;
         }
-        // Estimate current game time by adding elapsed real time
-        // This is approximate - game time may tick at different rates
-        const elapsed = Date.now() - this.gameTimeReceivedAt;
-        return this.gameTimeEpochMilli + elapsed;
+        // Estimate current game time by adding elapsed real time scaled by game time rate
+        const elapsedRealMs = Date.now() - this.gameTimeReceivedAt;
+        const rate = this.gameTimeRate || 1; // Default to 1:1 if rate unknown
+        const elapsedGameMs = elapsedRealMs * rate;
+        return this.gameTimeEpochMilli + elapsedGameMs;
+    }
+
+    /**
+     * Convert game time milliseconds to real time milliseconds.
+     * Useful for displaying "real" remaining time for alarms.
+     */
+    gameTimeToRealTime(gameMs) {
+        const rate = this.gameTimeRate || 1;
+        return gameMs / rate;
     }
 
     /**
@@ -2025,8 +2056,10 @@ class EntityInspector {
                 expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
             } else if (data.state === 'SET') {
                 // SET = alarm is scheduled - show remaining time if available
+                // Convert game time to real time for display
                 if (data.remainingMs != null && data.remainingMs > 0) {
-                    timeInfo = this.formatDuration(data.remainingMs);
+                    const realRemainingMs = this.gameTimeToRealTime(data.remainingMs);
+                    timeInfo = this.formatDuration(realRemainingMs);
                 } else {
                     timeInfo = '✓';
                 }
@@ -2252,8 +2285,10 @@ class EntityInspector {
                     expandPath = `components.InteractionManager.fields.entity.alarmStore.parameters.${name}`;
                 } else if (data.state === 'SET') {
                     // SET = alarm is scheduled - show remaining time if available
+                    // Convert game time to real time for display
                     if (data.remainingMs != null && data.remainingMs > 0) {
-                        timeInfo = this.formatDuration(data.remainingMs);
+                        const realRemainingMs = this.gameTimeToRealTime(data.remainingMs);
+                        timeInfo = this.formatDuration(realRemainingMs);
                     } else {
                         timeInfo = '✓';
                     }

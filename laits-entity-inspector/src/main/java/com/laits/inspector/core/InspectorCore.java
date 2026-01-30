@@ -196,6 +196,25 @@ public class InspectorCore implements DataTransportListener {
     }
 
     /**
+     * Get the game time rate (game seconds per real second).
+     * For example, 72.0 means game time runs at 72x real time speed.
+     * Returns null if world is not available.
+     */
+    public Double getGameTimeRate() {
+        World world = currentWorld;
+        if (world == null) {
+            return null;
+        }
+
+        try {
+            return WorldTimeResource.getSecondsPerTick(world);
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to get game time rate: %s", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Get the entity data collector.
      */
     public EntityDataCollector getCollector() {
@@ -333,6 +352,10 @@ public class InspectorCore implements DataTransportListener {
         return changed;
     }
 
+    // Counter for periodic time sync (every ~3 seconds at 20 TPS)
+    private int timeSyncCounter = 0;
+    private static final int TIME_SYNC_INTERVAL_TICKS = 60;
+
     /**
      * Called with batched position updates.
      * Must be called from world thread.
@@ -343,6 +366,15 @@ public class InspectorCore implements DataTransportListener {
         }
 
         broadcast(t -> t.sendPositionBatch(positions));
+
+        // Periodically send time sync to keep client interpolation accurate
+        timeSyncCounter++;
+        if (timeSyncCounter >= TIME_SYNC_INTERVAL_TICKS) {
+            timeSyncCounter = 0;
+            Long gameTime = getCurrentGameTimeEpochMilli();
+            Double gameRate = getGameTimeRate();
+            broadcast(t -> t.sendTimeSync(gameTime, gameRate));
+        }
     }
 
     /**
@@ -400,6 +432,7 @@ public class InspectorCore implements DataTransportListener {
                 .worldName(world.getName())
                 .entities(new ArrayList<>(cache.getAllEntities()))
                 .gameTimeEpochMilli(getCurrentGameTimeEpochMilli())
+                .gameTimeRate(getGameTimeRate())
                 .build();
     }
 

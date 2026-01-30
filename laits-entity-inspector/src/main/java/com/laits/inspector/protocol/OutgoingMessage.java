@@ -118,6 +118,13 @@ public class OutgoingMessage {
     }
 
     /**
+     * Create TIME_SYNC message with current game time and rate.
+     */
+    public static OutgoingMessage timeSync(Long gameTimeEpochMilli, Double gameTimeRate) {
+        return new OutgoingMessage(MessageType.TIME_SYNC, new TimeSyncData(gameTimeEpochMilli, gameTimeRate));
+    }
+
+    /**
      * Create EXPAND_RESPONSE message with expanded field data.
      */
     public static OutgoingMessage expandResponse(long entityId, String path, Object expandedData) {
@@ -279,6 +286,19 @@ public class OutgoingMessage {
 
         ErrorData(String message) {
             this.message = message;
+        }
+    }
+
+    /**
+     * Data for time sync message.
+     */
+    private static class TimeSyncData {
+        private final Long gameTimeEpochMilli;
+        private final Double gameTimeRate;
+
+        TimeSyncData(Long gameTimeEpochMilli, Double gameTimeRate) {
+            this.gameTimeEpochMilli = gameTimeEpochMilli;
+            this.gameTimeRate = gameTimeRate;
         }
     }
 

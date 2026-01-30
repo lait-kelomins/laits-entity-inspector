@@ -186,6 +186,11 @@ public class WebSocketTransport implements DataTransport {
         broadcast(OutgoingMessage.configSync(config).toJson());
     }
 
+    @Override
+    public void sendTimeSync(Long gameTimeEpochMilli, Double gameTimeRate) {
+        broadcast(OutgoingMessage.timeSync(gameTimeEpochMilli, gameTimeRate).toJson());
+    }
+
     // Internal handlers
 
     private void handleOpen(WebSocket conn, ClientHandshake handshake) {
