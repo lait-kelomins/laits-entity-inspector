@@ -18,7 +18,7 @@ import java.util.List;
  */
 public class InspectorConfig {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
 
     // General settings
     private boolean enabled = true;
