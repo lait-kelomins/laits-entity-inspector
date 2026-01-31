@@ -109,4 +109,12 @@ public interface DataTransport {
     default void setListener(DataTransportListener listener) {
         // Optional - not all transports need this
     }
+
+    /**
+     * Broadcast a raw JSON message to all connected clients.
+     * Used for messages that don't fit the standard send methods.
+     */
+    default void broadcast(String jsonMessage) {
+        // Optional - not all transports support raw broadcast
+    }
 }

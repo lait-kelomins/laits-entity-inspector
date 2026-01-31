@@ -23,6 +23,10 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -33,6 +37,11 @@ import java.util.stream.Collectors;
 public class AssetCollector {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    // Grace period delay for second initialization (allows mods to finish loading)
+    private static final int GRACE_PERIOD_SECONDS = 5;
+    // Delay after patch before refresh (allows patch to be applied)
+    private static final int PATCH_REFRESH_DELAY_SECONDS = 2;
 
     // Cache of discovered asset types from AssetRegistry
     private final Map<String, AssetTypeInfo> assetTypes = new ConcurrentHashMap<>();
@@ -47,6 +56,19 @@ public class AssetCollector {
 
     // Track if discovery has been run
     private volatile boolean initialized = false;
+
+    // Track if grace period refresh has been scheduled
+    private final AtomicBoolean gracePeriodScheduled = new AtomicBoolean(false);
+
+    // Scheduler for delayed refreshes
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "AssetCollector-Scheduler");
+        t.setDaemon(true);
+        return t;
+    });
+
+    // Callback for notifying when refresh completes (set by InspectorCore)
+    private volatile Runnable onRefreshComplete;
 
     /**
      * Information about a discovered asset type.
@@ -91,15 +113,85 @@ public class AssetCollector {
     }
 
     /**
-     * Initialize asset discovery using AssetRegistry.
+     * Set callback to be invoked when a refresh completes.
+     * Used by InspectorCore to broadcast refresh events to clients.
      */
-    public void initialize() {
+    public void setOnRefreshComplete(Runnable callback) {
+        this.onRefreshComplete = callback;
+    }
+
+    /**
+     * Initialize asset discovery using AssetRegistry.
+     * Performs immediate scan, then schedules a grace period re-scan to pick up late-loading mods.
+     */
+    public synchronized void initialize() {
         if (initialized) {
-            LOGGER.atInfo().log("AssetCollector already initialized, skipping");
+            LOGGER.atInfo().log("AssetCollector.initialize() called but already initialized - skipping (categories=%d, assets=%d)",
+                    fileCategories.size(), fileAssetPaths.size());
             return;
         }
+        LOGGER.atInfo().log("AssetCollector.initialize() - first time initialization starting");
         discoverAssetTypes();
         initialized = true;
+        LOGGER.atInfo().log("AssetCollector.initialize() complete - categories=%d, assets=%d",
+                fileCategories.size(), fileAssetPaths.size());
+
+        // Schedule grace period refresh to pick up late-loading mods
+        scheduleGracePeriodRefresh();
+    }
+
+    /**
+     * Refresh asset collection - clears caches and re-scans everything.
+     * Call this after mods/patches have loaded to pick up new assets.
+     */
+    public synchronized void refresh() {
+        LOGGER.atInfo().log("Refreshing asset collection...");
+        discoverAssetTypes();  // Re-scan everything (this clears caches internally)
+        initialized = true;    // Ensure we stay initialized
+        LOGGER.atInfo().log("Asset refresh complete. Found %d categories with %d total assets.",
+                fileCategories.size(), fileAssetPaths.size());
+    }
+
+    /**
+     * Schedule a grace period refresh to pick up late-loading mods.
+     * Only schedules once per plugin lifetime.
+     */
+    private void scheduleGracePeriodRefresh() {
+        if (gracePeriodScheduled.compareAndSet(false, true)) {
+            LOGGER.atInfo().log("Scheduling grace period refresh in %d seconds...", GRACE_PERIOD_SECONDS);
+            scheduler.schedule(() -> {
+                LOGGER.atInfo().log("Grace period elapsed - performing automatic refresh to pick up late-loading mods");
+                refresh();
+                notifyRefreshComplete();
+            }, GRACE_PERIOD_SECONDS, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Schedule a delayed refresh (e.g., after patch publish).
+     * Used to give time for patches to be applied before re-scanning.
+     */
+    public void scheduleDelayedRefresh() {
+        LOGGER.atInfo().log("Scheduling delayed refresh in %d seconds...", PATCH_REFRESH_DELAY_SECONDS);
+        scheduler.schedule(() -> {
+            LOGGER.atInfo().log("Delayed refresh triggered");
+            refresh();
+            notifyRefreshComplete();
+        }, PATCH_REFRESH_DELAY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Notify listeners that refresh is complete.
+     */
+    private void notifyRefreshComplete() {
+        Runnable callback = onRefreshComplete;
+        if (callback != null) {
+            try {
+                callback.run();
+            } catch (Exception e) {
+                LOGGER.atWarning().log("Error in refresh complete callback: %s", e.getMessage());
+            }
+        }
     }
 
     /**
@@ -138,8 +230,18 @@ public class AssetCollector {
             List<AssetPack> assetPacks = AssetModule.get().getAssetPacks();
             LOGGER.atInfo().log("Scanning %d asset packs for files...", assetPacks.size());
 
+            // Log each pack name for debugging
+            for (int i = 0; i < assetPacks.size(); i++) {
+                AssetPack pack = assetPacks.get(i);
+                LOGGER.atInfo().log("  Pack[%d]: %s at %s", i, pack.getName(), pack.getRoot());
+            }
+
             for (AssetPack pack : assetPacks) {
+                int beforeCount = fileAssetPaths.size();
                 cacheAssetPathsFromPack(pack);
+                int afterCount = fileAssetPaths.size();
+                LOGGER.atInfo().log("  Pack '%s' contributed %d assets (total now: %d)",
+                        pack.getName(), afterCount - beforeCount, afterCount);
             }
         } catch (Exception e) {
             LOGGER.atWarning().log("Failed to discover assets from file system: %s", e.getMessage());
@@ -344,6 +446,8 @@ public class AssetCollector {
             LOGGER.atInfo().log("Auto-initializing AssetCollector on first getCategories() call");
             initialize();
         }
+        LOGGER.atInfo().log("getCategories() called - initialized=%b, fileCategories=%d, fileAssets=%d, registryTypes=%d",
+                initialized, fileCategories.size(), fileAssetPaths.size(), assetTypes.size());
 
         List<AssetCategory> categories = new ArrayList<>();
 

@@ -1881,6 +1881,30 @@ body {
     color: var(--accent);
 }
 
+.refresh-assets-btn {
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    color: var(--text);
+    padding: 2px 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    margin-left: 4px;
+    transition: all 0.15s;
+}
+
+.refresh-assets-btn:hover {
+    background: var(--accent);
+    color: var(--black);
+    border-color: var(--accent);
+}
+
+.refresh-assets-btn.loading {
+    opacity: 0.6;
+    cursor: wait;
+    animation: pulse 1s infinite;
+}
+
 .asset-tree {
     flex: 1;
     overflow-y: auto;

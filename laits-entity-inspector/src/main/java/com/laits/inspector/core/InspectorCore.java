@@ -10,6 +10,7 @@ import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
+import com.laits.inspector.protocol.OutgoingMessage;
 import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
@@ -88,7 +89,14 @@ public class InspectorCore implements DataTransportListener {
                 hytalorDetector.getPatchDirectory()
         );
 
+        // Set up callback to broadcast when automatic refreshes complete
+        assetCollector.setOnRefreshComplete(() -> {
+            LOGGER.atInfo().log("Auto-refresh complete, broadcasting to clients");
+            broadcast(t -> t.broadcast(OutgoingMessage.assetsRefreshed().toJson()));
+        });
+
         // Initialize asset collector (uses AssetRegistry internally)
+        // This does immediate scan + schedules grace period refresh
         assetCollector.initialize();
 
         LOGGER.atInfo().log("Asset browser initialized. Hytalor: %s",
@@ -589,6 +597,24 @@ public class InspectorCore implements DataTransportListener {
         return null;
     }
 
+    @Override
+    public void refreshAssets() {
+        LOGGER.atInfo().log("Refreshing assets (immediate)...");
+        assetCollector.refresh();
+        // Broadcast refresh complete to all clients
+        broadcast(t -> t.broadcast(OutgoingMessage.assetsRefreshed().toJson()));
+    }
+
+    /**
+     * Schedule a delayed asset refresh (used after patch publish).
+     * The delay allows time for patches to be applied before re-scanning.
+     */
+    public void scheduleDelayedRefresh() {
+        LOGGER.atInfo().log("Scheduling delayed asset refresh after patch...");
+        assetCollector.scheduleDelayedRefresh();
+        // Callback will broadcast when complete
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING IMPLEMENTATION
     // ═══════════════════════════════════════════════════════════════
@@ -630,6 +656,10 @@ public class InspectorCore implements DataTransportListener {
             historyTracker.recordPatch(filename, basePath, "publish");
 
             LOGGER.atInfo().log("Patch published successfully: %s", filename);
+
+            // Schedule delayed refresh to pick up patch changes
+            scheduleDelayedRefresh();
+
             return null; // Success
         } catch (Exception e) {
             LOGGER.atWarning().log("Failed to publish patch %s: %s", filename, e.getMessage());

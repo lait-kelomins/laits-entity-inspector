@@ -468,6 +468,12 @@ public class WebSocketTransport implements DataTransport {
                 }
             }
 
+            case REFRESH_ASSETS -> {
+                LOGGER.atInfo().log("Asset refresh requested by client");
+                listener.refreshAssets();
+                // Response sent by InspectorCore via broadcast
+            }
+
             // ═══════════════════════════════════════════════════════════════
             // HYTALOR PATCHING MESSAGES
             // ═══════════════════════════════════════════════════════════════
@@ -686,7 +692,8 @@ public class WebSocketTransport implements DataTransport {
         session.send(OutgoingMessage.error(message).toJson());
     }
 
-    private void broadcast(String message) {
+    @Override
+    public void broadcast(String message) {
         if (!running.get() || sessions.isEmpty()) {
             return;
         }
