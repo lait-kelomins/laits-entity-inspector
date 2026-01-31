@@ -38,6 +38,7 @@ public enum MessageType {
     REQUEST_ASSET_DETAIL,      // Request full asset JSON
     REQUEST_ASSET_EXPAND,      // Request expanded field in asset
     REQUEST_SEARCH_ASSETS,     // Global search across all assets
+    REFRESH_ASSETS,            // Request to refresh/reload all assets
 
     // ═══════════════════════════════════════════════════════════════
     // ASSET BROWSER (Server → Client)
@@ -47,6 +48,7 @@ public enum MessageType {
     ASSET_DETAIL,              // Full asset JSON
     ASSET_EXPAND_RESPONSE,     // Expanded asset field data
     SEARCH_RESULTS,            // Global search results
+    ASSETS_REFRESHED,          // Confirmation that assets have been refreshed
 
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING (Client → Server)

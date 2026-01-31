@@ -177,6 +177,13 @@ public class OutgoingMessage {
         return new OutgoingMessage(MessageType.SEARCH_RESULTS, new SearchResultsData(query, results));
     }
 
+    /**
+     * Create ASSETS_REFRESHED message confirming asset refresh is complete.
+     */
+    public static OutgoingMessage assetsRefreshed() {
+        return new OutgoingMessage(MessageType.ASSETS_REFRESHED, null);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING MESSAGES
     // ═══════════════════════════════════════════════════════════════

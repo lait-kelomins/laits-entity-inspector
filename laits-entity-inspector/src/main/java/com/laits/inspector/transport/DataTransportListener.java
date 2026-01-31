@@ -188,6 +188,14 @@ public interface DataTransportListener {
         return null;
     }
 
+    /**
+     * Refresh/reload all asset data.
+     * Call this after mods/patches have loaded.
+     */
+    default void refreshAssets() {
+        // Default no-op
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // LIVE ENTITY QUERY CALLBACKS
     // ═══════════════════════════════════════════════════════════════

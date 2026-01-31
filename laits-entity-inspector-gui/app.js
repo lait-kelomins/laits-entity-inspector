@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.1';
+const GUI_VERSION = '0.1.2';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 // Storage key prefix for localStorage
@@ -229,6 +229,7 @@ class EntityInspector {
         this.assetDetailEl = document.getElementById('asset-detail');
         this.assetFilterInput = document.getElementById('asset-filter');
         this.expandAllBtn = document.getElementById('expand-all-btn');
+        this.refreshAssetsBtn = document.getElementById('refresh-assets-btn');
         this.patchBtn = document.getElementById('patch-btn');
         this.historyList = document.getElementById('history-list');
 
@@ -376,6 +377,12 @@ class EntityInspector {
 
                 // Tell server we're paused by default
                 this.send('SET_PAUSED', { paused: this.packetLogPaused });
+
+                // Request asset categories if we're on the assets tab
+                // (switchTab may have been called before connection was ready)
+                if (this.activeTab === 'assets' && this.assetCategories.length === 0) {
+                    this.requestAssetCategories();
+                }
             };
 
             this.ws.onclose = () => {
@@ -493,6 +500,9 @@ class EntityInspector {
                     break;
                 case 'ASSET_EXPAND_RESPONSE':
                     this.handleAssetExpandResponse(msg.data);
+                    break;
+                case 'ASSETS_REFRESHED':
+                    this.handleAssetsRefreshed();
                     break;
 
                 // Patch messages
@@ -3460,6 +3470,13 @@ class EntityInspector {
             });
         }
 
+        // Refresh assets button
+        if (this.refreshAssetsBtn) {
+            this.refreshAssetsBtn.addEventListener('click', () => {
+                this.refreshAssets();
+            });
+        }
+
         // Patch button
         if (this.patchBtn) {
             this.patchBtn.addEventListener('click', () => {
@@ -3503,6 +3520,61 @@ class EntityInspector {
         this.send('REQUEST_SEARCH_ASSETS', { query });
     }
 
+    /**
+     * Request a full asset refresh from the server.
+     * This re-scans all asset packs to pick up mod/patch changes.
+     */
+    refreshAssets() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.log('Cannot refresh: not connected', 'error');
+            return;
+        }
+
+        // Update button to loading state
+        if (this.refreshAssetsBtn) {
+            this.refreshAssetsBtn.classList.add('loading');
+            this.refreshAssetsBtn.disabled = true;
+            this.refreshAssetsBtn.textContent = '↻ Refreshing...';
+        }
+
+        this.send('REFRESH_ASSETS');
+        this.log('Requested asset refresh', 'info');
+    }
+
+    /**
+     * Handle ASSETS_REFRESHED response from server.
+     * Preserves UI state (expanded categories, selected asset, scroll position).
+     */
+    handleAssetsRefreshed() {
+        this.log('Assets refreshed successfully', 'connect');
+
+        // Reset button state
+        if (this.refreshAssetsBtn) {
+            this.refreshAssetsBtn.classList.remove('loading');
+            this.refreshAssetsBtn.disabled = false;
+            this.refreshAssetsBtn.textContent = '↻ REFRESH';
+        }
+
+        // Preserve scroll position
+        const assetTree = document.getElementById('asset-tree');
+        const scrollTop = assetTree?.scrollTop || 0;
+
+        // Preserve expanded categories (don't clear)
+        // Preserve selected asset (don't clear this.selectedAsset or this.selectedCategory)
+
+        // Clear cached data but keep UI state
+        this.assetCategories = [];
+        this.categoryAssets = {};
+        this.loadingCategories.clear();
+        this.searchResults = {};
+
+        // Set flag to restore scroll after render
+        this._pendingScrollRestore = scrollTop;
+
+        // Request fresh categories (handleAssetCategories will trigger search if needed)
+        this.requestAssetCategories();
+    }
+
     // Handle messages
     handleFeatureInfo(data) {
         this.hytalorEnabled = data.hytalorEnabled || false;
@@ -3522,6 +3594,21 @@ class EntityInspector {
     handleAssetCategories(data) {
         this.assetCategories = data.categories || [];
         this.renderAssetTree();
+
+        // Restore scroll position if pending (from refresh)
+        if (this._pendingScrollRestore !== undefined) {
+            const assetTree = document.getElementById('asset-tree');
+            if (assetTree) {
+                assetTree.scrollTop = this._pendingScrollRestore;
+            }
+            delete this._pendingScrollRestore;
+        }
+
+        // Apply search filter if present (persisted or current)
+        const searchQuery = this.assetFilterInput?.value?.trim();
+        if (searchQuery && searchQuery.length >= 2) {
+            this.requestSearchAssets(searchQuery);
+        }
     }
 
     handleAssetList(data) {
@@ -4025,6 +4112,7 @@ class EntityInspector {
                 this.addToHistory(data.filename, 'publish');
                 // Close modal after successful publish
                 setTimeout(() => this.closePatchModal(), 1500);
+                // Server will auto-refresh assets after a short delay and broadcast ASSETS_REFRESHED
             } else {
                 this.draftStatus.textContent = `✗ Error: ${data.error}`;
                 this.draftStatus.className = 'draft-status error';
