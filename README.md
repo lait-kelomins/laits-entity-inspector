@@ -6,8 +6,6 @@
 
 Real-time entity debugging tools for Hytale modding.
 
-> **Hytalor Integration**: The inspector automatically detects when [Hytalor](https://www.curseforge.com/hytale/mods/hytalor) is loaded, unlocking the Asset Browser and live asset patching — apply changes to game assets without restarting the server.
-
 ---
 
 ## Installation
@@ -17,6 +15,8 @@ Real-time entity debugging tools for Hytale modding.
 3. Open `laits-entity-inspector-gui/index.html` in a browser
 
 Run the updater again on new releases for auto-updating - you'll be notified on the dashboard.
+
+> **Hytalor Integration**: The inspector automatically detects when [Hytalor](https://www.curseforge.com/hytale/mods/hytalor) is loaded, unlocking the Asset Browser and live asset patching — apply changes to game assets without restarting the server.
 
 ---
 
