@@ -58,6 +58,8 @@ public enum MessageType {
     REQUEST_SAVE_DRAFT,        // Save patch draft
     REQUEST_PUBLISH_PATCH,     // Publish patch to Server/Patch/
     REQUEST_LIST_DRAFTS,       // List saved drafts
+    REQUEST_DELETE_PATCH,      // Delete a published patch
+    REQUEST_LIST_PATCHES,      // List all published patches
 
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING (Server → Client)
@@ -67,6 +69,8 @@ public enum MessageType {
     DRAFT_SAVED,               // Draft save confirmation
     PATCH_PUBLISHED,           // Patch publish confirmation
     DRAFTS_LIST,               // List of saved drafts
+    PATCH_DELETED,             // Patch delete confirmation
+    PATCHES_LIST,              // List of published patches
 
     // ═══════════════════════════════════════════════════════════════
     // FEATURE DETECTION (Server → Client)
@@ -91,5 +95,17 @@ public enum MessageType {
     ENTITY_TIMERS,             // Formatted timer state
     ENTITY_ALARMS,             // Formatted alarm state
     TIMER_SEARCH_RESULTS,      // Entities matching timer criteria
-    ALARM_SEARCH_RESULTS       // Entities matching alarm criteria
+    ALARM_SEARCH_RESULTS,      // Entities matching alarm criteria
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS (Client → Server)
+    // ═══════════════════════════════════════════════════════════════
+    REQUEST_SET_SURNAME,       // Set entity's nameplate surname
+    REQUEST_TELEPORT_TO,       // Teleport player to entity position
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS (Server → Client)
+    // ═══════════════════════════════════════════════════════════════
+    SURNAME_SET,               // Surname change confirmation
+    TELEPORT_RESULT            // Teleport result
 }

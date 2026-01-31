@@ -541,6 +541,28 @@ public class WebSocketTransport implements DataTransport {
                 session.send(OutgoingMessage.draftsList(drafts != null ? drafts : java.util.Collections.emptyList()).toJson());
             }
 
+            case REQUEST_DELETE_PATCH -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for patch delete");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                String filename = data.has("filename") ? data.get("filename").getAsString() : null;
+
+                String error = listener.deletePatch(filename);
+                session.send(OutgoingMessage.patchDeleted(filename, error == null, error).toJson());
+            }
+
+            case REQUEST_LIST_PATCHES -> {
+                // Send patches with content so client can populate history
+                var patches = listener.listPublishedPatchesWithContent();
+                if (patches != null && !patches.isEmpty()) {
+                    session.send(OutgoingMessage.patchesListWithContent(patches).toJson());
+                } else {
+                    session.send(OutgoingMessage.patchesList(java.util.Collections.emptyList()).toJson());
+                }
+            }
+
             // ═══════════════════════════════════════════════════════════════
             // LIVE ENTITY QUERY MESSAGES
             // ═══════════════════════════════════════════════════════════════
@@ -643,6 +665,43 @@ public class WebSocketTransport implements DataTransport {
                 } else {
                     sendError(session, "Failed to find entities by alarm");
                 }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // ENTITY ACTIONS
+            // ═══════════════════════════════════════════════════════════════
+
+            case REQUEST_SET_SURNAME -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for set surname request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+                String surname = data.has("surname") ? data.get("surname").getAsString() : "";
+
+                String error = listener.setEntitySurname(entityId, surname);
+                session.send(OutgoingMessage.surnameSet(entityId, surname, error == null, error).toJson());
+            }
+
+            case REQUEST_TELEPORT_TO -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for teleport request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+
+                String error = listener.teleportToEntity(entityId);
+                session.send(OutgoingMessage.teleportResult(entityId, error == null, error).toJson());
             }
 
             default -> sendError(session, "Unsupported message type: " + type);

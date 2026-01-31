@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.2';
+const GUI_VERSION = '0.1.3';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 // Storage key prefix for localStorage
@@ -24,7 +24,12 @@ const PERSISTED_SETTINGS = {
     'packet-log-collapsed': false,
     'entity-list-paused': true,
     'inspector-paused': true,
-    'live-changes-paused': true
+    'live-changes-paused': true,
+    'packet-panel-visible': false,
+    'live-panel-visible': false,
+    'live-filter-entity': '',
+    'live-filter-id': '',
+    'live-filter-component': ''
 };
 
 /**
@@ -39,6 +44,450 @@ function escapeHtml(unsafe) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+/**
+ * Enhanced JSON editor with indent guides, bracket matching, and auto-indentation.
+ */
+class JsonEditorEnhancer {
+    constructor(textarea, guidesContainer, bracketsContainer, options = {}) {
+        this.textarea = textarea;
+        this.guidesContainer = guidesContainer;
+        this.bracketsContainer = bracketsContainer;
+        this.charWidth = 7.2;
+        this.lineHeight = 16.8;
+        this.paddingLeft = 12;
+        this.paddingTop = 8;
+        this.indentSize = 2;
+
+        // Toggleable features
+        this.showIndentGuides = options.showIndentGuides !== false;
+        this.showBracketMatching = options.showBracketMatching !== false;
+
+        // Track last cursor position for bracket matching during scroll
+        this.lastCursorPos = 0;
+
+        this.brackets = { '{': '}', '[': ']', '(': ')' };
+        this.closingBrackets = new Set(['}', ']', ')']);
+        this.allBrackets = new Set(['{', '}', '[', ']', '(', ')']);
+
+        this.init();
+    }
+
+    setShowIndentGuides(show) {
+        this.showIndentGuides = show;
+        this.updateIndentGuides();
+    }
+
+    setShowBracketMatching(show) {
+        this.showBracketMatching = show;
+        this.updateBracketMatching();
+    }
+
+    init() {
+        // Create scrollable wrappers for overlay sync
+        this.guidesScroll = document.createElement('div');
+        this.guidesScroll.className = 'indent-guides-scroll';
+        this.guidesContainer.appendChild(this.guidesScroll);
+
+        this.bracketsScroll = document.createElement('div');
+        this.bracketsScroll.className = 'bracket-highlight-scroll';
+        this.bracketsContainer.appendChild(this.bracketsScroll);
+
+        this.textarea.addEventListener('input', () => {
+            this.recalibrateOnScroll = true; // Recalibrate on next scroll
+            this.updateIndentGuides();
+            this.updateBracketMatching();
+        });
+        // Use requestAnimationFrame for scroll to ensure values are stable
+        this.textarea.addEventListener('scroll', () => {
+            requestAnimationFrame(() => this.syncScroll());
+        });
+        this.textarea.addEventListener('click', () => {
+            this.lastCursorPos = this.textarea.selectionStart;
+            this.updateBracketMatching();
+        });
+        this.textarea.addEventListener('keyup', () => {
+            this.lastCursorPos = this.textarea.selectionStart;
+            this.updateBracketMatching();
+        });
+        this.textarea.addEventListener('keydown', (e) => this.handleKeyDown(e));
+
+        // Measure and initial render after DOM is ready
+        requestAnimationFrame(() => {
+            this.measureCharWidth();
+            this.updateIndentGuides();
+        });
+    }
+
+    measureCharWidth() {
+        // Get computed style from textarea
+        const style = getComputedStyle(this.textarea);
+        this.paddingTop = parseFloat(style.paddingTop) || 8;
+        this.paddingLeft = parseFloat(style.paddingLeft) || 12;
+
+        // Create measurement element matching textarea styling exactly
+        const measure = document.createElement('div');
+        measure.style.cssText = `
+            position: absolute;
+            visibility: hidden;
+            white-space: pre;
+            font-family: ${style.fontFamily};
+            font-size: ${style.fontSize};
+            line-height: ${style.lineHeight};
+            padding: 0;
+            margin: 0;
+            border: 0;
+        `;
+
+        // Measure character width with 100 characters for accuracy
+        measure.textContent = 'X'.repeat(100);
+        document.body.appendChild(measure);
+        this.charWidth = measure.offsetWidth / 100;
+
+        // Measure line height with multiple lines for accuracy
+        measure.textContent = 'X\nX\nX\nX\nX\nX\nX\nX\nX\nX'; // 10 lines
+        this.lineHeight = measure.offsetHeight / 10;
+
+        document.body.removeChild(measure);
+
+        // Update measurements when textarea content changes significantly
+        // to recalibrate based on actual scroll behavior
+        this.recalibrateOnScroll = true;
+    }
+
+    // Recalibrate line height based on actual textarea scroll behavior
+    recalibrateLineHeight() {
+        const text = this.textarea.value;
+        if (!text) return;
+
+        const lineCount = text.split('\n').length;
+        if (lineCount < 10) return; // Not enough lines to measure accurately
+
+        // Calculate line height from scrollHeight
+        // scrollHeight = paddingTop + (lineCount * lineHeight) + paddingBottom
+        const style = getComputedStyle(this.textarea);
+        const paddingBottom = parseFloat(style.paddingBottom) || 8;
+        const contentHeight = this.textarea.scrollHeight - this.paddingTop - paddingBottom;
+
+        if (contentHeight > 0 && lineCount > 0) {
+            const measuredLineHeight = contentHeight / lineCount;
+            // Only update if significantly different to avoid jitter
+            if (Math.abs(measuredLineHeight - this.lineHeight) > 0.1) {
+                this.lineHeight = measuredLineHeight;
+            }
+        }
+        this.recalibrateOnScroll = false;
+    }
+
+    syncScroll() {
+        // Recalibrate line height on first scroll for accuracy
+        if (this.recalibrateOnScroll) {
+            this.recalibrateLineHeight();
+            // After recalibration, re-render at content positions
+            this.updateIndentGuides();
+            this.updateBracketMatching();
+        }
+
+        // Direct scroll sync - overlay scrolls exactly like textarea
+        const scrollTop = this.textarea.scrollTop;
+        const scrollLeft = this.textarea.scrollLeft;
+
+        this.guidesScroll.scrollTop = scrollTop;
+        this.guidesScroll.scrollLeft = scrollLeft;
+        this.bracketsScroll.scrollTop = scrollTop;
+        this.bracketsScroll.scrollLeft = scrollLeft;
+    }
+
+    updateIndentGuides() {
+        if (!this.showIndentGuides) {
+            this.guidesScroll.innerHTML = '';
+            return;
+        }
+
+        const text = this.textarea.value;
+        if (!text) {
+            this.guidesScroll.innerHTML = '';
+            return;
+        }
+
+        const lines = text.split('\n');
+
+        // Use textarea's actual scrollHeight to ensure perfect match
+        const totalHeight = this.textarea.scrollHeight;
+
+        // Only render visible range for performance
+        const scrollTop = this.textarea.scrollTop;
+        const scrollLeft = this.textarea.scrollLeft;
+        const viewportHeight = this.textarea.clientHeight;
+        const viewportWidth = this.textarea.clientWidth;
+        const firstVisible = Math.max(0, Math.floor((scrollTop - this.paddingTop) / this.lineHeight) - 5);
+        const lastVisible = Math.min(lines.length - 1, Math.ceil((scrollTop + viewportHeight) / this.lineHeight) + 5);
+
+        let html = '';
+        for (let i = firstVisible; i <= lastVisible; i++) {
+            const line = lines[i];
+            const match = line.match(/^([\t ]+)/);
+            if (!match) continue;
+
+            let spaceCount = 0;
+            for (const char of match[1]) {
+                spaceCount += char === '\t' ? this.indentSize : 1;
+            }
+            const levels = Math.floor(spaceCount / this.indentSize);
+
+            for (let level = 1; level <= levels; level++) {
+                const left = this.paddingLeft + ((level - 1) * this.indentSize * this.charWidth);
+                const top = this.paddingTop + (i * this.lineHeight);
+
+                // Skip if outside horizontal viewport
+                const viewportLeft = left - scrollLeft;
+                if (viewportLeft < -50 || viewportLeft > viewportWidth + 50) continue;
+
+                html += `<div class="indent-guide" style="left:${left}px;top:${top}px;height:${this.lineHeight}px"></div>`;
+            }
+        }
+
+        // Wrapper div with full content height for proper scrolling
+        this.guidesScroll.innerHTML = `<div style="position:relative;height:${totalHeight}px;width:100%">${html}</div>`;
+
+        // Sync scroll position
+        this.guidesScroll.scrollTop = scrollTop;
+        this.guidesScroll.scrollLeft = scrollLeft;
+    }
+
+    updateBracketMatching() {
+        this.bracketsScroll.innerHTML = '';
+
+        if (!this.showBracketMatching) return;
+
+        const text = this.textarea.value;
+        if (!text) return;
+
+        // Use current cursor position, or last known position if textarea lost focus
+        let pos = this.textarea.selectionStart;
+        if (pos !== undefined && pos !== null && document.activeElement === this.textarea) {
+            this.lastCursorPos = pos;
+        } else {
+            pos = this.lastCursorPos;
+        }
+        if (pos === undefined || pos === null) return;
+
+        // Check char at and before cursor
+        let bracketPos = -1, bracket = null;
+        const charAt = text[pos];
+        const charBefore = pos > 0 ? text[pos - 1] : null;
+
+        if (charAt && this.allBrackets.has(charAt)) {
+            bracketPos = pos;
+            bracket = charAt;
+        } else if (charBefore && this.allBrackets.has(charBefore)) {
+            bracketPos = pos - 1;
+            bracket = charBefore;
+        }
+        if (bracket === null) return;
+
+        // Create content wrapper with textarea's actual scrollHeight for perfect sync
+        const totalHeight = this.textarea.scrollHeight;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'bracket-content';
+        wrapper.style.cssText = `position:relative;height:${totalHeight}px;width:100%`;
+        this.bracketsScroll.appendChild(wrapper);
+
+        const matchPos = this.findMatchingBracket(text, bracketPos, bracket);
+        this.highlightBracket(text, bracketPos, matchPos === -1 ? 'error' : 'opening', wrapper);
+        if (matchPos !== -1) {
+            this.highlightBracket(text, matchPos, 'closing', wrapper);
+        }
+
+        // Sync scroll at end
+        this.bracketsScroll.scrollTop = this.textarea.scrollTop;
+        this.bracketsScroll.scrollLeft = this.textarea.scrollLeft;
+    }
+
+    findMatchingBracket(text, pos, bracket) {
+        const isOpening = this.brackets[bracket] !== undefined;
+        const targetBracket = isOpening ? this.brackets[bracket] :
+            Object.keys(this.brackets).find(k => this.brackets[k] === bracket);
+
+        if (!targetBracket) return -1;
+
+        let depth = 1;
+        const direction = isOpening ? 1 : -1;
+        let i = pos + direction;
+
+        while (i >= 0 && i < text.length) {
+            const char = text[i];
+
+            // Skip characters inside strings
+            if (!this.isInsideString(text, i)) {
+                if (char === bracket) {
+                    depth++;
+                } else if (char === (isOpening ? this.brackets[bracket] : targetBracket)) {
+                    depth--;
+                    if (depth === 0) return i;
+                }
+            }
+
+            i += direction;
+        }
+
+        return -1;
+    }
+
+    isInsideString(text, pos) {
+        // Simple check - count unescaped quotes before position
+        let inString = false;
+        let i = 0;
+        while (i < pos) {
+            if (text[i] === '"' && (i === 0 || text[i-1] !== '\\')) {
+                inString = !inString;
+            }
+            i++;
+        }
+        return inString;
+    }
+
+    highlightBracket(text, pos, className, container) {
+        const beforeText = text.substring(0, pos);
+        const lines = beforeText.split('\n');
+        const lineNum = lines.length - 1;
+        const colNum = lines[lines.length - 1].length;
+
+        // Content coordinates (no scroll adjustment - scroll sync handles it)
+        const top = this.paddingTop + (lineNum * this.lineHeight);
+        const left = this.paddingLeft + (colNum * this.charWidth);
+
+        const highlight = document.createElement('div');
+        highlight.className = `bracket-highlight ${className}`;
+        highlight.style.cssText = `top:${top}px;left:${left}px;width:${this.charWidth + 2}px;height:${this.lineHeight}px`;
+        container.appendChild(highlight);
+    }
+
+    handleKeyDown(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            this.handleEnter();
+        } else if (e.key === 'Tab') {
+            e.preventDefault();
+            this.handleTab(e.shiftKey);
+        } else if (e.key === '}' || e.key === ']' || e.key === ')') {
+            // Check if we should dedent
+            this.handleClosingBracket(e);
+        }
+    }
+
+    handleEnter() {
+        const start = this.textarea.selectionStart;
+        const end = this.textarea.selectionEnd;
+        const text = this.textarea.value;
+
+        // Get current line's indentation
+        const beforeCursor = text.substring(0, start);
+        const lines = beforeCursor.split('\n');
+        const currentLine = lines[lines.length - 1];
+        const indentMatch = currentLine.match(/^(\s*)/);
+        let indent = indentMatch ? indentMatch[1] : '';
+
+        // Check if previous character is an opening bracket
+        const charBefore = text[start - 1];
+        const charAfter = text[start];
+        const isOpeningBracket = charBefore && this.brackets[charBefore];
+        const isClosingBracket = charAfter && this.closingBrackets.has(charAfter);
+
+        let insertion = '\n' + indent;
+
+        if (isOpeningBracket) {
+            // Add extra indentation after opening bracket
+            insertion = '\n' + indent + '  ';
+
+            if (isClosingBracket) {
+                // Cursor is between { and }, add both lines
+                insertion = '\n' + indent + '  \n' + indent;
+                // Position cursor on the middle line
+                const newPos = start + indent.length + 3;
+                this.insertText(insertion, start, end);
+                this.textarea.selectionStart = this.textarea.selectionEnd = newPos;
+                this.updateIndentGuides();
+                return;
+            }
+        }
+
+        this.insertText(insertion, start, end);
+        this.updateIndentGuides();
+    }
+
+    handleTab(isShiftKey) {
+        const start = this.textarea.selectionStart;
+        const end = this.textarea.selectionEnd;
+        const text = this.textarea.value;
+
+        if (start === end) {
+            // No selection - insert spaces
+            if (!isShiftKey) {
+                this.insertText('  ', start, end);
+            }
+        } else {
+            // Selection - indent/dedent lines
+            const beforeStart = text.substring(0, start);
+            const selection = text.substring(start, end);
+            const afterEnd = text.substring(end);
+
+            const lineStartIndex = beforeStart.lastIndexOf('\n') + 1;
+            const prefix = text.substring(lineStartIndex, start);
+            const fullSelection = prefix + selection;
+
+            const lines = fullSelection.split('\n');
+            const modifiedLines = lines.map(line => {
+                if (isShiftKey) {
+                    // Dedent
+                    return line.replace(/^  /, '');
+                } else {
+                    // Indent
+                    return '  ' + line;
+                }
+            });
+
+            const newSelection = modifiedLines.join('\n');
+            const newText = text.substring(0, lineStartIndex) + newSelection + afterEnd;
+
+            this.textarea.value = newText;
+            this.textarea.selectionStart = lineStartIndex;
+            this.textarea.selectionEnd = lineStartIndex + newSelection.length - prefix.length + (isShiftKey ? -2 : 2);
+        }
+
+        this.updateIndentGuides();
+        this.textarea.dispatchEvent(new Event('input'));
+    }
+
+    handleClosingBracket(e) {
+        const start = this.textarea.selectionStart;
+        const text = this.textarea.value;
+
+        // Get current line before cursor
+        const beforeCursor = text.substring(0, start);
+        const lines = beforeCursor.split('\n');
+        const currentLine = lines[lines.length - 1];
+
+        // If current line is only whitespace, dedent before inserting bracket
+        if (/^\s*$/.test(currentLine) && currentLine.length >= 2) {
+            e.preventDefault();
+            const lineStart = beforeCursor.lastIndexOf('\n') + 1;
+            const dedentedLine = currentLine.substring(2);
+            const newText = text.substring(0, lineStart) + dedentedLine + e.key + text.substring(start);
+            this.textarea.value = newText;
+            this.textarea.selectionStart = this.textarea.selectionEnd = lineStart + dedentedLine.length + 1;
+            this.updateIndentGuides();
+            this.textarea.dispatchEvent(new Event('input'));
+        }
+    }
+
+    insertText(text, start, end) {
+        const currentText = this.textarea.value;
+        this.textarea.value = currentText.substring(0, start) + text + currentText.substring(end);
+        this.textarea.selectionStart = this.textarea.selectionEnd = start + text.length;
+        this.textarea.dispatchEvent(new Event('input'));
+    }
 }
 
 class EntityInspector {
@@ -70,6 +519,9 @@ class EntityInspector {
         this.assetFilter = this.loadSetting('asset-filter');
         this.sessionHistory = [];
         this.searchResults = {}; // categoryId -> matching assets
+
+        // Asset favorites (stored in localStorage)
+        this.favorites = this.loadFavorites();
 
         // Sensor cache for Role assets (rolePath → { Sensors: {...} })
         this.sensorCache = new Map();
@@ -154,6 +606,14 @@ class EntityInspector {
         this.liveChangesClearBtn = document.getElementById('live-changes-clear-btn');
         this.liveChangesPaused = this.loadSetting('live-changes-paused');
 
+        // Live changes filter elements
+        this.liveFilterEntity = document.getElementById('live-filter-entity');
+        this.liveFilterId = document.getElementById('live-filter-id');
+        this.liveFilterComponent = document.getElementById('live-filter-component');
+        this.liveFilterEntityValue = this.loadSetting('live-filter-entity');
+        this.liveFilterIdValue = this.loadSetting('live-filter-id');
+        this.liveFilterComponentValue = this.loadSetting('live-filter-component');
+
         // Packet log elements
         this.packetLogPanel = document.getElementById('packet-log-panel');
         this.packetLogHeader = document.getElementById('packet-log-header');
@@ -202,6 +662,12 @@ class EntityInspector {
         this.globalPauseIcon = document.getElementById('global-pause-icon');
         this.globalPauseLabel = document.getElementById('global-pause-label');
 
+        // Panel visibility toggle buttons (footer)
+        this.togglePacketsBtn = document.getElementById('toggle-packets-btn');
+        this.toggleLiveBtn = document.getElementById('toggle-live-btn');
+        this.packetPanelVisible = this.loadSetting('packet-panel-visible');
+        this.livePanelVisible = this.loadSetting('live-panel-visible');
+
         // Individual panel pause buttons
         this.entityListPauseBtn = document.getElementById('entity-list-pause-btn');
         this.entityListPauseIcon = document.getElementById('entity-list-pause-icon');
@@ -228,7 +694,6 @@ class EntityInspector {
         this.assetTreeEl = document.getElementById('asset-tree');
         this.assetDetailEl = document.getElementById('asset-detail');
         this.assetFilterInput = document.getElementById('asset-filter');
-        this.expandAllBtn = document.getElementById('expand-all-btn');
         this.refreshAssetsBtn = document.getElementById('refresh-assets-btn');
         this.patchBtn = document.getElementById('patch-btn');
         this.historyList = document.getElementById('history-list');
@@ -276,6 +741,7 @@ class EntityInspector {
         this.setupTabListeners();
         this.setupAssetBrowserListeners();
         this.setupPatchModalListeners();
+        this.setupInfoPopovers();
         this.loadHeaderState();
         this.loadCachedConfig();  // Load settings from localStorage as fallback
         this.initializePauseState();  // Set initial pause UI state
@@ -383,6 +849,9 @@ class EntityInspector {
                 if (this.activeTab === 'assets' && this.assetCategories.length === 0) {
                     this.requestAssetCategories();
                 }
+
+                // Load existing patches into history
+                this.requestListPatches();
             };
 
             this.ws.onclose = () => {
@@ -520,6 +989,20 @@ class EntityInspector {
                     break;
                 case 'DRAFTS_LIST':
                     this.handleDraftsList(msg.data);
+                    break;
+                case 'PATCH_DELETED':
+                    this.handlePatchDeleted(msg.data);
+                    break;
+                case 'PATCHES_LIST':
+                    this.handlePatchesList(msg.data);
+                    break;
+
+                // Entity actions
+                case 'SURNAME_SET':
+                    this.handleSurnameSet(msg.data);
+                    break;
+                case 'TELEPORT_RESULT':
+                    this.handleTeleportResult(msg.data);
                     break;
 
                 default:
@@ -1411,7 +1894,9 @@ class EntityInspector {
 
     loadHeaderState() {
         if (!this.headerEl) return;
-        const collapsed = localStorage.getItem('inspector-header-collapsed') === 'true';
+        // Default to collapsed on first start (when key doesn't exist)
+        const stored = localStorage.getItem('inspector-header-collapsed');
+        const collapsed = stored === null ? true : stored === 'true';
         if (collapsed) {
             this.headerCollapsed = true;
             this.headerEl.classList.add('collapsed');
@@ -1441,6 +1926,9 @@ class EntityInspector {
         if (this.packetDirectionSelect) this.packetDirectionSelect.value = this.packetDirectionFilter;
         if (this.assetFilterInput) this.assetFilterInput.value = this.assetFilter;
         if (this.alarmsFilterInput) this.alarmsFilterInput.value = this.alarmsFilter;
+        if (this.liveFilterEntity) this.liveFilterEntity.value = this.liveFilterEntityValue;
+        if (this.liveFilterId) this.liveFilterId.value = this.liveFilterIdValue;
+        if (this.liveFilterComponent) this.liveFilterComponent.value = this.liveFilterComponentValue;
 
         // Restore alarms sort button state
         if (this.alarmsSortBtns) {
@@ -1453,6 +1941,9 @@ class EntityInspector {
         if (this.packetLogPanel && this.packetLogCollapsed) {
             this.packetLogPanel.classList.add('collapsed');
         }
+
+        // Restore panel visibility state
+        this.updatePanelVisibility();
 
         // Restore active tab
         this.switchTab(this.activeTab);
@@ -1620,6 +2111,9 @@ class EntityInspector {
 
         const html = filtered.map(entity => {
             const isSelected = entity.entityId === this.selectedEntityId;
+            // Extract surname from LaitInspectorComponent only (inspector-specific data)
+            const inspector = entity.components?.LaitInspectorComponent;
+            const surname = inspector?.fields?.surname || '';
             return `
                 <div class="entity-row ${isSelected ? 'selected' : ''}"
                      data-entity-id="${entity.entityId}">
@@ -1627,19 +2121,54 @@ class EntityInspector {
                     <span class="col-type">${escapeHtml(entity.entityType) || '---'}</span>
                     <span class="col-model">${escapeHtml(entity.modelAssetId) || '---'}</span>
                     <span class="col-pos">${this.formatPosition(entity.position)}</span>
+                    <span class="col-surname">
+                        <span class="surname-text" title="${escapeHtml(surname)}">${escapeHtml(surname) || '---'}</span>
+                        <button class="action-btn edit-btn" data-entity-id="${entity.entityId}" data-current="${escapeHtml(surname)}" title="Edit surname">✎</button>
+                    </span>
+                    <span class="col-actions">
+                        <button class="action-btn tp-btn" data-entity-id="${entity.entityId}" title="Teleport to entity">TP</button>
+                    </span>
                 </div>
             `;
         }).join('');
 
         this.entityListEl.innerHTML = html;
 
-        // Add click handlers
+        // Add click handlers for row selection
         this.entityListEl.querySelectorAll('.entity-row').forEach(row => {
-            row.addEventListener('click', () => {
+            row.addEventListener('click', (e) => {
+                // Don't select when clicking action buttons or surname column
+                if (e.target.closest('.action-btn') || e.target.closest('.col-surname')) return;
                 const id = parseInt(row.dataset.entityId);
                 this.selectEntity(id);
             });
         });
+
+        // Add click handlers for teleport buttons
+        this.entityListEl.querySelectorAll('.tp-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const entityId = parseInt(btn.dataset.entityId);
+                this.requestTeleportTo(entityId);
+            });
+        });
+
+        // Add click handlers for edit surname buttons
+        this.entityListEl.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const entityId = parseInt(btn.dataset.entityId);
+                const currentSurname = btn.dataset.current || '';
+                this.openSurnameEditor(entityId, currentSurname);
+            });
+        });
+    }
+
+    openSurnameEditor(entityId, currentSurname) {
+        const newSurname = prompt('Enter new surname:', currentSurname);
+        if (newSurname !== null) {
+            this.requestSetSurname(entityId, newSurname);
+        }
     }
 
     renderInspector() {
@@ -1703,6 +2232,10 @@ class EntityInspector {
                 this.fetchSensorsForRole(rolePath);
             }
         }
+
+        // Render entity assets section (model, role references)
+        const entityAssets = this.extractEntityAssets(entity);
+        html += this.renderEntityAssetsSection(entityAssets);
 
         // Render components (filtered)
         if (entity.components && Object.keys(entity.components).length > 0) {
@@ -1806,6 +2339,24 @@ class EntityInspector {
                     row.classList.toggle('collapsed');
                     if (children) children.classList.toggle('collapsed');
                     toggle.textContent = willCollapse ? '▶' : '▼';
+                }
+            });
+        });
+
+        // Add click handlers for asset links in entity assets section
+        this.inspectorEl.querySelectorAll('.asset-link-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const searchQuery = row.dataset.searchQuery;
+                if (searchQuery) {
+                    this.switchTab('assets');
+                    // Use search to find the asset
+                    if (this.assetSearchInput) {
+                        this.assetSearchInput.value = searchQuery;
+                        this.assetFilter = searchQuery;
+                        this.saveSetting('asset-filter', searchQuery);
+                    }
+                    // Trigger search
+                    this.send('REQUEST_SEARCH_ASSETS', { query: searchQuery });
                 }
             });
         });
@@ -2984,13 +3535,23 @@ class EntityInspector {
     renderLiveChanges() {
         if (!this.liveChangesContent) return;
 
+        // When paused, freeze the display - don't update anything
         if (this.liveChangesPaused) {
-            this.liveChangesContent.innerHTML = `
-                <div class="empty-state small">
-                    <pre>Paused - Click PLAY to start tracking</pre>
-                </div>`;
+            // If there's no frozen content yet, show empty state
+            if (!this.liveChangesContent.dataset.frozen) {
+                if (this.globalChanges.length === 0) {
+                    this.liveChangesContent.innerHTML = `
+                        <div class="empty-state small">
+                            <pre>Paused - Click PLAY to start tracking</pre>
+                        </div>`;
+                }
+                // Otherwise keep whatever is currently displayed (frozen)
+            }
             return;
         }
+
+        // Clear frozen flag when running
+        delete this.liveChangesContent.dataset.frozen;
 
         const now = Date.now();
 
@@ -3008,9 +3569,36 @@ class EntityInspector {
         // Deduplicate by entity+component (keep most recent), then take last N
         const seen = new Map();
         recent.forEach(c => seen.set(`${c.entityId}:${c.componentName}`, c));
-        const uniqueChanges = Array.from(seen.values())
-            .sort((a, b) => b.timestamp - a.timestamp)
-            .slice(0, this.maxGlobalChips);
+        let uniqueChanges = Array.from(seen.values())
+            .sort((a, b) => a.timestamp - b.timestamp); // Oldest first for left-to-right stack
+
+        // Apply filters
+        if (this.liveFilterEntityValue) {
+            uniqueChanges = uniqueChanges.filter(c =>
+                c.entityName.toLowerCase().includes(this.liveFilterEntityValue)
+            );
+        }
+        if (this.liveFilterIdValue) {
+            uniqueChanges = uniqueChanges.filter(c =>
+                String(c.entityId).includes(this.liveFilterIdValue)
+            );
+        }
+        if (this.liveFilterComponentValue) {
+            uniqueChanges = uniqueChanges.filter(c =>
+                c.componentName.toLowerCase().includes(this.liveFilterComponentValue)
+            );
+        }
+
+        // Limit to max chips
+        uniqueChanges = uniqueChanges.slice(-this.maxGlobalChips); // Take newest N
+
+        if (uniqueChanges.length === 0) {
+            this.liveChangesContent.innerHTML = `
+                <div class="empty-state small">
+                    <pre>No matching changes${this.liveFilterEntityValue || this.liveFilterIdValue || this.liveFilterComponentValue ? ' (filters active)' : '...'}</pre>
+                </div>`;
+            return;
+        }
 
         this.liveChangesContent.innerHTML = uniqueChanges
             .map(c => `
@@ -3020,6 +3608,9 @@ class EntityInspector {
                 </div>
             `)
             .join('');
+
+        // Auto-scroll to the right to show newest changes
+        this.liveChangesContent.scrollLeft = this.liveChangesContent.scrollWidth;
 
         // Add click handlers to select entity
         this.liveChangesContent.querySelectorAll('.live-change-chip').forEach(chip => {
@@ -3036,9 +3627,17 @@ class EntityInspector {
         this.updateLiveChangesPauseUI();
         this.updateGlobalPauseUI();
 
-        if (!this.liveChangesPaused) {
-            // Clear old changes when resuming
+        if (this.liveChangesPaused) {
+            // Mark content as frozen when pausing
+            if (this.liveChangesContent) {
+                this.liveChangesContent.dataset.frozen = 'true';
+            }
+        } else {
+            // Clear old changes when resuming for fresh start
             this.globalChanges = [];
+            if (this.liveChangesContent) {
+                delete this.liveChangesContent.dataset.frozen;
+            }
         }
         this.renderLiveChanges();
 
@@ -3062,6 +3661,42 @@ class EntityInspector {
         this.renderLiveChanges();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PANEL VISIBILITY TOGGLES
+    // ═══════════════════════════════════════════════════════════════
+
+    togglePacketPanelVisibility() {
+        this.packetPanelVisible = !this.packetPanelVisible;
+        this.saveSetting('packet-panel-visible', this.packetPanelVisible);
+        this.updatePanelVisibility();
+    }
+
+    toggleLivePanelVisibility() {
+        this.livePanelVisible = !this.livePanelVisible;
+        this.saveSetting('live-panel-visible', this.livePanelVisible);
+        this.updatePanelVisibility();
+    }
+
+    updatePanelVisibility() {
+        // Update packet log panel
+        if (this.packetLogPanel) {
+            this.packetLogPanel.classList.toggle('panel-hidden', !this.packetPanelVisible);
+        }
+        if (this.togglePacketsBtn) {
+            this.togglePacketsBtn.classList.toggle('active', this.packetPanelVisible);
+            this.togglePacketsBtn.classList.toggle('inactive', !this.packetPanelVisible);
+        }
+
+        // Update live changes panel
+        if (this.liveChangesPanel) {
+            this.liveChangesPanel.classList.toggle('panel-hidden', !this.livePanelVisible);
+        }
+        if (this.toggleLiveBtn) {
+            this.toggleLiveBtn.classList.toggle('active', this.livePanelVisible);
+            this.toggleLiveBtn.classList.toggle('inactive', !this.livePanelVisible);
+        }
+    }
+
     formatPosition(pos, full = false) {
         if (!pos) return '---';
         if (full) {
@@ -3080,7 +3715,9 @@ class EntityInspector {
             const type = (entity.entityType || '').toLowerCase();
             const model = (entity.modelAssetId || '').toLowerCase();
             const id = String(entity.entityId);
-            return type.includes(search) || model.includes(search) || id.includes(search);
+            // Include surname from LaitInspectorComponent in search
+            const surname = (entity.components?.LaitInspectorComponent?.fields?.surname || '').toLowerCase();
+            return type.includes(search) || model.includes(search) || id.includes(search) || surname.includes(search);
         });
     }
 
@@ -3227,6 +3864,41 @@ class EntityInspector {
         if (this.liveChangesClearBtn) {
             this.liveChangesClearBtn.addEventListener('click', () => {
                 this.clearLiveChanges();
+            });
+        }
+
+        // Live changes filter inputs
+        if (this.liveFilterEntity) {
+            this.liveFilterEntity.addEventListener('input', (e) => {
+                this.liveFilterEntityValue = e.target.value.trim().toLowerCase();
+                this.saveSetting('live-filter-entity', this.liveFilterEntityValue);
+                this.renderLiveChanges();
+            });
+        }
+        if (this.liveFilterId) {
+            this.liveFilterId.addEventListener('input', (e) => {
+                this.liveFilterIdValue = e.target.value.trim();
+                this.saveSetting('live-filter-id', this.liveFilterIdValue);
+                this.renderLiveChanges();
+            });
+        }
+        if (this.liveFilterComponent) {
+            this.liveFilterComponent.addEventListener('input', (e) => {
+                this.liveFilterComponentValue = e.target.value.trim().toLowerCase();
+                this.saveSetting('live-filter-component', this.liveFilterComponentValue);
+                this.renderLiveChanges();
+            });
+        }
+
+        // Panel visibility toggle buttons (footer)
+        if (this.togglePacketsBtn) {
+            this.togglePacketsBtn.addEventListener('click', () => {
+                this.togglePacketPanelVisibility();
+            });
+        }
+        if (this.toggleLiveBtn) {
+            this.toggleLiveBtn.addEventListener('click', () => {
+                this.toggleLivePanelVisibility();
             });
         }
 
@@ -3463,13 +4135,6 @@ class EntityInspector {
             });
         }
 
-        // Expand/collapse all button
-        if (this.expandAllBtn) {
-            this.expandAllBtn.addEventListener('click', () => {
-                this.toggleExpandAll();
-            });
-        }
-
         // Refresh assets button
         if (this.refreshAssetsBtn) {
             this.refreshAssetsBtn.addEventListener('click', () => {
@@ -3483,20 +4148,6 @@ class EntityInspector {
                 this.openPatchModal();
             });
         }
-    }
-
-    toggleExpandAll() {
-        const allExpanded = this.expandedCategories.size === this.assetCategories.length;
-        if (allExpanded) {
-            // Collapse all
-            this.expandedCategories.clear();
-        } else {
-            // Expand all
-            for (const cat of this.assetCategories) {
-                this.expandedCategories.add(cat.id);
-            }
-        }
-        this.renderAssetTree();
     }
 
     // Request methods
@@ -3679,6 +4330,37 @@ class EntityInspector {
         const hasSearchResults = filter && Object.keys(this.searchResults).length > 0;
         let html = '';
 
+        // Render Favorites category at top (only if not searching and has favorites)
+        const favoriteAssets = this.getFavoriteAssets();
+        if (!hasSearchResults && favoriteAssets.length > 0) {
+            const favExpanded = this.expandedCategories.has('_favorites');
+            html += `
+                <div class="tree-category favorites ${favExpanded ? '' : 'collapsed'}" data-category="_favorites">
+                    <div class="tree-category-header favorites-header">
+                        <span class="tree-category-toggle">▼</span>
+                        <span class="tree-category-name">★ Favorites</span>
+                        <span class="tree-category-count">${favoriteAssets.length}</span>
+                    </div>
+                    <div class="tree-assets">
+            `;
+            for (const fav of favoriteAssets) {
+                const isSelected = this.selectedAsset === fav.assetId && this.selectedCategory === fav.category;
+                html += `
+                    <div class="tree-asset ${isSelected ? 'selected' : ''}"
+                         data-asset-id="${escapeHtml(fav.assetId)}"
+                         data-category="${escapeHtml(fav.category)}">
+                        <button class="favorite-btn active" data-fav-category="${escapeHtml(fav.category)}" data-fav-asset="${escapeHtml(fav.assetId)}" title="Remove from favorites">★</button>
+                        <span class="tree-asset-id">${escapeHtml(fav.assetId)}</span>
+                        <span class="tree-asset-category">${escapeHtml(fav.category)}</span>
+                    </div>
+                `;
+            }
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
         // Sort categories by display name
         const sortedCategories = [...this.assetCategories].sort((a, b) =>
             a.displayName.localeCompare(b.displayName)
@@ -3731,10 +4413,12 @@ class EntityInspector {
                 // Show assets
                 for (const asset of displayAssets) {
                     const isSelected = this.selectedAsset === asset.id && this.selectedCategory === cat.id;
+                    const isFav = this.isFavorite(cat.id, asset.id);
                     html += `
                         <div class="tree-asset ${isSelected ? 'selected' : ''} ${hasSearchResults ? 'match' : ''}"
                              data-asset-id="${escapeHtml(asset.id)}"
                              data-category="${escapeHtml(cat.id)}">
+                            <button class="favorite-btn ${isFav ? 'active' : ''}" data-fav-category="${escapeHtml(cat.id)}" data-fav-asset="${escapeHtml(asset.id)}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">★</button>
                             <span class="tree-asset-id">${escapeHtml(asset.id)}</span>
                             <span class="tree-asset-type">${escapeHtml(asset.typeHint || '')}</span>
                         </div>
@@ -3765,8 +4449,20 @@ class EntityInspector {
 
         // Add click handlers for assets
         this.assetTreeEl.querySelectorAll('.tree-asset').forEach(item => {
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
+                // Don't select if clicking favorite button
+                if (e.target.classList.contains('favorite-btn')) return;
                 this.selectAsset(item.dataset.category, item.dataset.assetId);
+            });
+        });
+
+        // Add click handlers for favorite buttons
+        this.assetTreeEl.querySelectorAll('.favorite-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const category = btn.dataset.favCategory;
+                const assetId = btn.dataset.favAsset;
+                this.toggleFavorite(category, assetId);
             });
         });
 
@@ -3815,6 +4511,120 @@ class EntityInspector {
 
         // Request detail
         this.requestAssetDetail(category, assetId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ASSET FAVORITES
+    // ═══════════════════════════════════════════════════════════════
+
+    loadFavorites() {
+        const stored = localStorage.getItem('inspector-asset-favorites');
+        if (stored) {
+            try {
+                return new Set(JSON.parse(stored));
+            } catch {
+                return new Set();
+            }
+        }
+        return new Set();
+    }
+
+    saveFavorites() {
+        localStorage.setItem('inspector-asset-favorites', JSON.stringify([...this.favorites]));
+    }
+
+    getFavoriteKey(category, assetId) {
+        return `${category}/${assetId}`;
+    }
+
+    isFavorite(category, assetId) {
+        return this.favorites.has(this.getFavoriteKey(category, assetId));
+    }
+
+    toggleFavorite(category, assetId) {
+        const key = this.getFavoriteKey(category, assetId);
+        if (this.favorites.has(key)) {
+            this.favorites.delete(key);
+        } else {
+            this.favorites.add(key);
+        }
+        this.saveFavorites();
+        this.renderAssetTree();
+    }
+
+    getFavoriteAssets() {
+        // Return array of {category, assetId, id} for rendering
+        return [...this.favorites].map(key => {
+            const [category, ...rest] = key.split('/');
+            const assetId = rest.join('/'); // Handle asset IDs with slashes
+            return { category, assetId, id: assetId };
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ASSET EXTRACTION
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Extract referenced assets from an entity for display in inspector.
+     * @param {Object} entity - Entity data with components
+     * @returns {Array} Array of {type, path, searchQuery}
+     */
+    extractEntityAssets(entity) {
+        const assets = [];
+
+        // Model asset from modelAssetId
+        if (entity.modelAssetId) {
+            assets.push({
+                type: 'Model',
+                path: entity.modelAssetId,
+                searchQuery: entity.modelAssetId.split('/').pop() // Search by last part of path
+            });
+        }
+
+        // Role from NPCEntity component
+        const npcEntity = entity.components?.NPCEntity;
+        if (npcEntity?.fields?.roleName) {
+            const roleName = npcEntity.fields.roleName;
+            assets.push({
+                type: 'Role',
+                path: roleName,
+                searchQuery: roleName
+            });
+        }
+
+        return assets;
+    }
+
+    /**
+     * Render the assets section in the inspector.
+     * @param {Array} assets - Array of extracted assets
+     * @returns {string} HTML string
+     */
+    renderEntityAssetsSection(assets) {
+        if (!assets || assets.length === 0) return '';
+
+        let rows = '';
+        for (const asset of assets) {
+            rows += `
+                <div class="asset-link-row" data-search-query="${escapeHtml(asset.searchQuery)}">
+                    <span class="asset-type">${escapeHtml(asset.type)}</span>
+                    <span class="asset-path clickable">${escapeHtml(asset.path)}</span>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="entity-assets-section component-section">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">📦 ASSETS</span>
+                </div>
+                <div class="component-body">
+                    ${rows}
+                </div>
+            </div>
+        `;
     }
 
     renderAssetDetail() {
@@ -3925,15 +4735,16 @@ class EntityInspector {
             });
         }
 
-        // Modified JSON change - update preview
-        if (this.modifiedJson) {
+        // Modified JSON change - fallback for when CodeMirror isn't loaded
+        // (CodeMirror 'change' events are set up in initJsonEditorEnhancers)
+        if (this.modifiedJson && typeof CodeMirror === 'undefined') {
             this.modifiedJson.addEventListener('input', () => {
                 this.updatePatchPreview();
             });
         }
 
-        // Direct JSON change - update preview
-        if (this.directJson) {
+        // Direct JSON change - fallback for when CodeMirror isn't loaded
+        if (this.directJson && typeof CodeMirror === 'undefined') {
             this.directJson.addEventListener('input', () => {
                 this.updatePatchPreviewDirect();
             });
@@ -3948,6 +4759,449 @@ class EntityInspector {
         if (this.publishBtn) {
             this.publishBtn.addEventListener('click', () => this.publishPatch());
         }
+
+        // Initialize JSON editor enhancers for indent guides, bracket matching, auto-indent
+        this.initJsonEditorEnhancers();
+    }
+
+    initJsonEditorEnhancers() {
+        // CodeMirror configuration for JSON editing
+        const cmConfig = {
+            mode: { name: 'javascript', json: true },
+            theme: 'default',
+            lineNumbers: false,
+            matchBrackets: true,
+            autoCloseBrackets: true,
+            foldGutter: true,
+            gutters: ['CodeMirror-foldgutter'],
+            indentUnit: 2,
+            tabSize: 2,
+            indentWithTabs: false,
+            lineWrapping: false
+        };
+
+        // Initialize CodeMirror for modified-json
+        if (this.modifiedJson && typeof CodeMirror !== 'undefined') {
+            this.modifiedJsonEditor = CodeMirror.fromTextArea(this.modifiedJson, cmConfig);
+            this.modifiedJsonEditor.on('change', () => {
+                this.updatePatchPreview();
+            });
+            // Enable indent guides by default
+            const modifiedContainer = document.getElementById('modified-json-container');
+            if (modifiedContainer) {
+                this.setupIndentGuides(this.modifiedJsonEditor, modifiedContainer);
+            }
+        }
+
+        // Initialize CodeMirror for direct-json
+        if (this.directJson && typeof CodeMirror !== 'undefined') {
+            this.directJsonEditor = CodeMirror.fromTextArea(this.directJson, cmConfig);
+            this.directJsonEditor.on('change', () => {
+                this.updatePatchPreviewDirect();
+            });
+            // Enable indent guides by default
+            const directContainer = document.getElementById('direct-json-container');
+            if (directContainer) {
+                this.setupIndentGuides(this.directJsonEditor, directContainer);
+            }
+        }
+
+        // Set up editor toggle buttons
+        this.setupEditorToggles();
+
+        // Set up resize handle
+        this.setupEditorResizeHandle();
+    }
+
+    setupIndentGuides(editor, container) {
+        // Track if guides are enabled
+        container._showIndentGuides = true;
+
+        // Store reference to container on editor for access in renderLine
+        editor._guideContainer = container;
+
+        // Add indent guides on line render
+        editor.on('renderLine', (cm, line, element) => {
+            if (!cm._guideContainer?._showIndentGuides) return;
+
+            const text = line.text;
+            if (!text) return;
+
+            // Count leading whitespace
+            const match = text.match(/^(\s+)/);
+            if (!match) return;
+
+            const whitespace = match[1];
+            let spaces = 0;
+            for (const char of whitespace) {
+                spaces += char === '\t' ? 2 : 1;
+            }
+
+            const indentLevels = Math.floor(spaces / 2);
+            if (indentLevels === 0) return;
+
+            const charWidth = cm.defaultCharWidth();
+
+            // Add guide elements for each indent level
+            for (let level = 1; level <= indentLevels; level++) {
+                const guide = document.createElement('span');
+                guide.className = 'cm-indent-guide';
+                guide.style.left = `${(level - 1) * 2 * charWidth}px`;
+                element.insertBefore(guide, element.firstChild);
+            }
+        });
+
+        // Refresh to apply guides
+        editor.refresh();
+    }
+
+    toggleIndentGuides(editor, container, show) {
+        container._showIndentGuides = show;
+        editor.refresh();
+    }
+
+    setupEditorToggles() {
+        const modifiedContainer = document.getElementById('modified-json-container');
+        const directContainer = document.getElementById('direct-json-container');
+
+        // Indent guides toggle for modified editor
+        const toggleGuides = document.getElementById('toggle-guides');
+        if (toggleGuides && modifiedContainer && this.modifiedJsonEditor) {
+            toggleGuides.addEventListener('click', () => {
+                const isActive = toggleGuides.classList.toggle('active');
+                this.toggleIndentGuides(this.modifiedJsonEditor, modifiedContainer, isActive);
+            });
+        }
+
+        // Bracket matching toggle for modified editor
+        const toggleBrackets = document.getElementById('toggle-brackets');
+        if (toggleBrackets && this.modifiedJsonEditor) {
+            toggleBrackets.addEventListener('click', () => {
+                const isActive = toggleBrackets.classList.toggle('active');
+                this.modifiedJsonEditor.setOption('matchBrackets', isActive);
+            });
+        }
+
+        // Code folding toggle for modified editor
+        const toggleFold = document.getElementById('toggle-fold');
+        if (toggleFold && this.modifiedJsonEditor) {
+            toggleFold.addEventListener('click', () => {
+                const isActive = toggleFold.classList.toggle('active');
+                this.modifiedJsonEditor.setOption('foldGutter', isActive);
+                this.modifiedJsonEditor.setOption('gutters', isActive ? ['CodeMirror-foldgutter'] : []);
+            });
+        }
+
+        // Indent guides toggle for direct editor
+        const toggleGuidesDirect = document.getElementById('toggle-guides-direct');
+        if (toggleGuidesDirect && directContainer && this.directJsonEditor) {
+            toggleGuidesDirect.addEventListener('click', () => {
+                const isActive = toggleGuidesDirect.classList.toggle('active');
+                this.toggleIndentGuides(this.directJsonEditor, directContainer, isActive);
+            });
+        }
+
+        // Bracket matching toggle for direct editor
+        const toggleBracketsDirect = document.getElementById('toggle-brackets-direct');
+        if (toggleBracketsDirect && this.directJsonEditor) {
+            toggleBracketsDirect.addEventListener('click', () => {
+                const isActive = toggleBracketsDirect.classList.toggle('active');
+                this.directJsonEditor.setOption('matchBrackets', isActive);
+            });
+        }
+
+        // Code folding toggle for direct editor
+        const toggleFoldDirect = document.getElementById('toggle-fold-direct');
+        if (toggleFoldDirect && this.directJsonEditor) {
+            toggleFoldDirect.addEventListener('click', () => {
+                const isActive = toggleFoldDirect.classList.toggle('active');
+                this.directJsonEditor.setOption('foldGutter', isActive);
+                this.directJsonEditor.setOption('gutters', isActive ? ['CodeMirror-foldgutter'] : []);
+            });
+        }
+    }
+
+    setupEditorResizeHandle() {
+        const handle = document.getElementById('editor-resize-handle');
+        const patchEditor = document.getElementById('patch-editor-diff');
+        if (!handle || !patchEditor) return;
+
+        const originalPane = patchEditor.querySelector('.original-pane');
+        const modifiedPane = patchEditor.querySelector('.modified-pane');
+        if (!originalPane || !modifiedPane) return;
+
+        let isDragging = false;
+        let startX = 0;
+        let startOriginalWidth = 0;
+
+        handle.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startOriginalWidth = originalPane.offsetWidth;
+            handle.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const delta = e.clientX - startX;
+            const containerWidth = patchEditor.offsetWidth;
+            const newOriginalWidth = Math.max(150, Math.min(containerWidth - 200, startOriginalWidth + delta));
+
+            // Set flex-basis for both panes
+            originalPane.style.flex = `0 0 ${newOriginalWidth}px`;
+            modifiedPane.style.flex = '1 1 auto';
+
+            // Refresh CodeMirror to handle resize
+            if (this.modifiedJsonEditor) {
+                this.modifiedJsonEditor.refresh();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                handle.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // INFO POPOVERS
+    // ═══════════════════════════════════════════════════════════════
+
+    setupInfoPopovers() {
+        const infoContent = {
+            'global': {
+                title: 'Entity Inspector Help',
+                content: `
+                    <p><strong>Welcome to Lait's Entity Inspector!</strong></p>
+                    <p>This tool lets you inspect and modify game entities and assets in real-time.</p>
+                    <h4>Tabs:</h4>
+                    <ul>
+                        <li><strong>Entities</strong> - View live game entities (NPCs, items, players)</li>
+                        <li><strong>Assets</strong> - Browse and patch game asset definitions</li>
+                    </ul>
+                    <h4>Tips:</h4>
+                    <ul>
+                        <li>Click any <em>i</em> button for section-specific help</li>
+                        <li>Use the search bar to filter entities or assets</li>
+                        <li>Click an entity to inspect its components</li>
+                    </ul>
+                `
+            },
+            'entity-list': {
+                title: 'Entity List',
+                content: `
+                    <p>Shows all live entities in the current world.</p>
+                    <h4>Features:</h4>
+                    <ul>
+                        <li><strong>Search</strong> - Filter by name, role, type, or surname</li>
+                        <li><strong>Click</strong> - Select entity to view components</li>
+                        <li><strong>Teleport</strong> - Click TP button to teleport to entity</li>
+                    </ul>
+                    <h4>Surname System:</h4>
+                    <ul>
+                        <li>Give custom names to entities for easy identification</li>
+                        <li>Surnames persist across game restarts</li>
+                        <li>Visible in-game via entity nameplate</li>
+                        <li>Searchable in the filter bar</li>
+                    </ul>
+                `
+            },
+            'inspector': {
+                title: 'Component Inspector',
+                content: `
+                    <p>Displays all ECS components attached to the selected entity.</p>
+                    <h4>Features:</h4>
+                    <ul>
+                        <li><strong>Click arrows</strong> - Expand/collapse components</li>
+                        <li><strong>Alt+Click</strong> - Expand/collapse all descendants</li>
+                        <li><strong>Blue "expand"</strong> - Lazy-loaded data, click to fetch (may not always work)</li>
+                    </ul>
+                `
+            },
+            'asset-browser': {
+                title: 'Asset Browser',
+                content: `
+                    <p>Browse all game asset definitions organized by category.</p>
+                    <h4>Features:</h4>
+                    <ul>
+                        <li><strong>Search</strong> - Find assets across all categories</li>
+                        <li><strong>Click category</strong> - Expand to see assets</li>
+                        <li><strong>Click asset</strong> - View full asset definition</li>
+                    </ul>
+                    <h4>Favorites:</h4>
+                    <ul>
+                        <li>Click the star icon to favorite an asset</li>
+                        <li>Favorites appear at the top of the list</li>
+                        <li>Favorites persist across sessions</li>
+                    </ul>
+                `
+            },
+            'asset-detail': {
+                title: 'Asset Detail',
+                content: `
+                    <p>Shows the complete JSON definition of the selected asset.</p>
+                    <h4>Features:</h4>
+                    <ul>
+                        <li><strong>Click arrows</strong> - Expand/collapse sections</li>
+                        <li><strong>Alt+Click</strong> - Expand/collapse all</li>
+                        <li><strong>Create Patch</strong> - Open patch editor for this asset</li>
+                    </ul>
+                    <h4>Creating Patches:</h4>
+                    <p>Use the patch editor to modify assets. Changes take effect after game restart.</p>
+                `
+            },
+            'history': {
+                title: 'Patch History',
+                content: `
+                    <p>Shows all patches created during this session and loaded from disk.</p>
+                    <h4>Operations:</h4>
+                    <ul>
+                        <li><strong>published</strong> - Patch saved to Server/Patch/</li>
+                        <li><strong>draft</strong> - Patch saved as draft</li>
+                        <li><strong>loaded</strong> - Existing patch loaded from disk</li>
+                    </ul>
+                    <h4>Actions:</h4>
+                    <ul>
+                        <li><strong>View</strong> - See patch content in modal</li>
+                        <li><strong>Delete</strong> - Remove patch file (requires restart)</li>
+                    </ul>
+                `
+            },
+            'alarms': {
+                title: 'Entity Alarms',
+                content: `
+                    <p>Shows timer and alarm states for the selected entity.</p>
+                    <h4>Alarm States:</h4>
+                    <ul>
+                        <li><strong>SET</strong> - Alarm is scheduled</li>
+                        <li><strong>PASSED</strong> - Alarm has triggered</li>
+                        <li><strong>UNSET</strong> - Alarm is inactive</li>
+                    </ul>
+                    <h4>Timer States:</h4>
+                    <ul>
+                        <li><strong>RUNNING</strong> - Timer is active</li>
+                        <li><strong>PAUSED</strong> - Timer is paused</li>
+                        <li><strong>STOPPED</strong> - Timer is not running</li>
+                    </ul>
+                `
+            },
+            'packets': {
+                title: 'Packet Log',
+                content: `
+                    <p>Shows WebSocket messages between GUI and server.</p>
+                    <h4>Message Types:</h4>
+                    <ul>
+                        <li><strong>→ OUT</strong> - Messages sent to server</li>
+                        <li><strong>← IN</strong> - Messages received from server</li>
+                    </ul>
+                    <h4>Controls:</h4>
+                    <ul>
+                        <li><strong>Clear</strong> - Empty the packet log</li>
+                        <li><strong>Toggle</strong> - Pause/resume logging</li>
+                    </ul>
+                    <p>Useful for debugging packet communication.</p>
+                `
+            },
+            'live': {
+                title: 'Live Changes',
+                content: `
+                    <p>Shows real-time component changes for the selected entity.</p>
+                    <h4>Features:</h4>
+                    <ul>
+                        <li>Displays component updates as they happen</li>
+                        <li>Shows old value → new value</li>
+                        <li>Auto-scrolls to latest changes</li>
+                    </ul>
+                    <h4>Use Cases:</h4>
+                    <ul>
+                        <li>Debug state machine transitions</li>
+                        <li>Track health/hunger changes</li>
+                        <li>Monitor AI behavior</li>
+                    </ul>
+                `
+            }
+        };
+
+        const popover = document.getElementById('info-popover');
+        const popoverTitle = popover?.querySelector('.info-popover-title');
+        const popoverContent = popover?.querySelector('.info-popover-content');
+        const popoverClose = popover?.querySelector('.info-popover-close');
+
+        if (!popover || !popoverTitle || !popoverContent) return;
+
+        // Close button
+        popoverClose?.addEventListener('click', () => {
+            popover.classList.add('hidden');
+        });
+
+        // Close on click outside
+        document.addEventListener('click', (e) => {
+            if (!popover.classList.contains('hidden') &&
+                !popover.contains(e.target) &&
+                !e.target.classList.contains('info-btn')) {
+                popover.classList.add('hidden');
+            }
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !popover.classList.contains('hidden')) {
+                popover.classList.add('hidden');
+            }
+        });
+
+        // Global help button
+        const globalBtn = document.getElementById('global-help-btn');
+        globalBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showInfoPopover(popover, popoverTitle, popoverContent, infoContent['global'], globalBtn);
+        });
+
+        // All other info buttons
+        document.querySelectorAll('.info-btn[data-info]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const key = btn.dataset.info;
+                if (infoContent[key]) {
+                    this.showInfoPopover(popover, popoverTitle, popoverContent, infoContent[key], btn);
+                }
+            });
+        });
+    }
+
+    showInfoPopover(popover, titleEl, contentEl, info, triggerBtn) {
+        titleEl.textContent = info.title;
+        contentEl.innerHTML = info.content;
+
+        // Position popover near button
+        const btnRect = triggerBtn.getBoundingClientRect();
+        const popoverWidth = 350;
+        const popoverHeight = 300;
+
+        // Default to below and left of button
+        let left = btnRect.right - popoverWidth;
+        let top = btnRect.bottom + 8;
+
+        // Adjust if would go off screen
+        if (left < 10) left = 10;
+        if (left + popoverWidth > window.innerWidth - 10) {
+            left = window.innerWidth - popoverWidth - 10;
+        }
+        if (top + popoverHeight > window.innerHeight - 10) {
+            top = btnRect.top - popoverHeight - 8;
+        }
+
+        popover.style.left = `${left}px`;
+        popover.style.top = `${top}px`;
+        popover.classList.remove('hidden');
     }
 
     openPatchModal() {
@@ -3976,7 +5230,10 @@ class EntityInspector {
         if (this.originalJson) {
             this.originalJson.textContent = originalContent;
         }
-        if (this.modifiedJson) {
+        // Set modified JSON content - use CodeMirror if available
+        if (this.modifiedJsonEditor) {
+            this.modifiedJsonEditor.setValue(originalContent);
+        } else if (this.modifiedJson) {
             this.modifiedJson.value = originalContent;
         }
 
@@ -3998,6 +5255,16 @@ class EntityInspector {
         // Show modal
         if (this.patchModal) {
             this.patchModal.classList.remove('hidden');
+            // Refresh CodeMirror editors after modal is visible
+            // (they need to recalculate dimensions)
+            setTimeout(() => {
+                if (this.modifiedJsonEditor) {
+                    this.modifiedJsonEditor.refresh();
+                }
+                if (this.directJsonEditor) {
+                    this.directJsonEditor.refresh();
+                }
+            }, 10);
         }
     }
 
@@ -4029,7 +5296,10 @@ class EntityInspector {
 
         try {
             const originalText = this.originalJson?.textContent || '{}';
-            const modifiedText = this.modifiedJson?.value || '{}';
+            // Use CodeMirror API if available, fallback to textarea
+            const modifiedText = this.modifiedJsonEditor
+                ? this.modifiedJsonEditor.getValue()
+                : (this.modifiedJson?.value || '{}');
 
             const original = JSON.parse(originalText);
             const modified = JSON.parse(modifiedText);
@@ -4053,7 +5323,10 @@ class EntityInspector {
         if (this.patchEditorMode !== 'json') return;
 
         try {
-            const patchText = this.directJson?.value || '';
+            // Use CodeMirror API if available, fallback to textarea
+            const patchText = this.directJsonEditor
+                ? this.directJsonEditor.getValue()
+                : (this.directJson?.value || '');
             const patch = JSON.parse(patchText);
             if (this.patchPreview) {
                 this.patchPreview.textContent = JSON.stringify(patch, null, 2);
@@ -4123,6 +5396,117 @@ class EntityInspector {
     handleDraftsList(data) {
         // Could be used for a drafts list UI
         console.log('Drafts:', data.drafts);
+    }
+
+    handlePatchDeleted(data) {
+        if (data.success) {
+            this.log(`Patch deleted: ${data.filename}`, 'info');
+            // Remove from session history if present
+            this.sessionHistory = this.sessionHistory.filter(h => h.filename !== data.filename);
+            this.renderHistory();
+        } else {
+            this.log(`Failed to delete patch: ${data.error}`, 'error');
+        }
+    }
+
+    handlePatchesList(data) {
+        // Populate session history with patches from disk
+        if (data.patchesWithContent && data.patchesWithContent.length > 0) {
+            // Full patch info available - populate history
+            this.sessionHistory = data.patchesWithContent.map(patch => {
+                // Extract BaseAssetPath from patch content if possible
+                let baseAssetPath = 'unknown';
+                try {
+                    const parsed = JSON.parse(patch.content);
+                    baseAssetPath = parsed.BaseAssetPath || 'unknown';
+                } catch (e) {
+                    // Ignore parse errors
+                }
+
+                return {
+                    id: patch.modifiedTime + Math.random(),
+                    filename: patch.filename,
+                    baseAssetPath: baseAssetPath,
+                    timestamp: patch.modifiedTime,
+                    operation: 'loaded',  // Indicate these were loaded from disk
+                    content: patch.content
+                };
+            });
+
+            // Sort by timestamp descending (most recent first)
+            this.sessionHistory.sort((a, b) => b.timestamp - a.timestamp);
+
+            this.log(`Loaded ${this.sessionHistory.length} patches from disk`, 'info');
+            this.renderHistory();
+        } else if (data.patches && data.patches.length > 0) {
+            // Only filenames available (legacy format)
+            console.log('Published patches (filenames only):', data.patches);
+        }
+    }
+
+    requestDeletePatch(filename) {
+        this.send('REQUEST_DELETE_PATCH', { filename });
+    }
+
+    requestListPatches() {
+        this.send('REQUEST_LIST_PATCHES');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS
+    // ═══════════════════════════════════════════════════════════════
+
+    requestSetSurname(entityId, surname) {
+        this.send('REQUEST_SET_SURNAME', { entityId, surname });
+    }
+
+    requestTeleportTo(entityId) {
+        this.send('REQUEST_TELEPORT_TO', { entityId });
+        this.log(`Teleporting to entity #${entityId}...`, 'info');
+    }
+
+    handleSurnameSet(data) {
+        if (data.success) {
+            this.log(`Surname set for entity #${data.entityId}: "${data.surname}"`, 'info');
+
+            // Update the entity in local cache
+            const entity = this.entities.get(data.entityId);
+            if (entity) {
+                // Ensure LaitInspectorComponent exists
+                if (!entity.components) entity.components = {};
+                if (!entity.components.LaitInspectorComponent) {
+                    entity.components.LaitInspectorComponent = { fields: {} };
+                }
+                if (!entity.components.LaitInspectorComponent.fields) {
+                    entity.components.LaitInspectorComponent.fields = {};
+                }
+                entity.components.LaitInspectorComponent.fields.surname = data.surname;
+            }
+
+            // Update the UI - find and update the specific row
+            const row = this.entityListEl?.querySelector(`.entity-row[data-entity-id="${data.entityId}"]`);
+            if (row) {
+                const surnameText = row.querySelector('.surname-text');
+                const editBtn = row.querySelector('.edit-btn');
+                if (surnameText) {
+                    surnameText.textContent = data.surname || '---';
+                    surnameText.title = data.surname || '';
+                }
+                if (editBtn) {
+                    editBtn.dataset.current = data.surname || '';
+                }
+            }
+        } else {
+            this.log(`Failed to set surname: ${data.error}`, 'error');
+        }
+    }
+
+    handleTeleportResult(data) {
+        if (data.success) {
+            this.log(`Teleported to entity #${data.entityId}`, 'info');
+        } else {
+            this.log(`Teleport failed: ${data.error}`, 'error');
+        }
     }
 
     saveDraft() {
@@ -4265,12 +5649,19 @@ class EntityInspector {
                         <span>Time: ${new Date(entry.timestamp).toLocaleString()}</span>
                     </div>
                     <div class="history-modal-content">
-                        <textarea id="history-patch-content" spellcheck="false">${escapeHtml(entry.content || 'No content available')}</textarea>
+                        <div class="json-editor-container">
+                            <div class="indent-guides" id="history-json-guides"></div>
+                            <textarea id="history-patch-content" class="json-edit" spellcheck="false">${escapeHtml(entry.content || 'No content available')}</textarea>
+                            <div class="bracket-highlight-layer" id="history-json-brackets"></div>
+                        </div>
                     </div>
                     <div class="history-modal-actions">
                         <button class="btn-danger" id="history-delete-btn">Delete</button>
                         <button class="btn-secondary" id="history-copy-btn">Copy</button>
                         <button class="btn-primary" id="history-republish-btn">Republish</button>
+                    </div>
+                    <div class="history-modal-warning">
+                        Note: Game may need to be restarted for patch deletion to take effect. Patch revert is planned for a future update.
                     </div>
                 </div>
             </div>
@@ -4287,6 +5678,13 @@ class EntityInspector {
         const republishBtn = document.getElementById('history-republish-btn');
         const contentArea = document.getElementById('history-patch-content');
 
+        // Initialize JSON editor enhancer for this textarea
+        const guidesContainer = document.getElementById('history-json-guides');
+        const bracketsContainer = document.getElementById('history-json-brackets');
+        if (guidesContainer && bracketsContainer) {
+            new JsonEditorEnhancer(contentArea, guidesContainer, bracketsContainer);
+        }
+
         // Close modal function
         const closeModal = () => overlay.remove();
 
@@ -4297,10 +5695,9 @@ class EntityInspector {
         closeBtn.addEventListener('click', closeModal);
 
         deleteBtn.addEventListener('click', () => {
-            this.sessionHistory.splice(index, 1);
-            this.renderHistory();
+            // Use server-side deletion to sync with InspectorPatches folder
+            this.requestDeletePatch(entry.filename);
             closeModal();
-            this.log(`Deleted patch from history: ${entry.filename}`, 'info');
         });
 
         copyBtn.addEventListener('click', () => {

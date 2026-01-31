@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lait's Entity Inspector</title>
     <link rel="stylesheet" href="style.css">
+    <!-- CodeMirror 5 for JSON editing -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/foldgutter.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/brace-fold.min.js"></script>
 </head>
 <body>
     <div class="scanlines"></div>
@@ -29,6 +39,7 @@
 ╚═════════════════════════════════════════════════════════════════════╝</pre>
                 <span class="header-collapsed-title" id="header-collapsed-title">LAIT'S ENTITY INSPECTOR</span>
             </div>
+            <button class="info-btn global-info-btn" id="global-help-btn" title="Help">i</button>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="label">STATUS:</span>
@@ -65,10 +76,12 @@
             <section class="panel entity-list-panel" id="entity-list-panel">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ ENTITY LIST ]─────────────────────────┐</span>
+                    <span class="header-spacer"></span>
                     <button class="panel-pause-btn paused" id="entity-list-pause-btn" title="Pause/Resume Entity Updates">
                         <span id="entity-list-pause-icon">▶</span>
                         <span id="entity-list-pause-label">PLAY</span>
                     </button>
+                    <button class="info-btn" data-info="entity-list" title="Entity List Help">i</button>
                 </div>
                 <div class="search-box">
                     <span class="prompt">&gt;</span>
@@ -80,6 +93,8 @@
                     <span class="col-type">TYPE</span>
                     <span class="col-model">MODEL</span>
                     <span class="col-pos">POSITION</span>
+                    <span class="col-surname">SURNAME</span>
+                    <span class="col-actions">ACT</span>
                 </div>
                 <div id="entity-list" class="entity-list">
                     <div class="empty-state">
@@ -102,11 +117,13 @@
             <section class="panel inspector-panel" id="inspector-panel">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ COMPONENT INSPECTOR ]─────────────────┐</span>
+                    <span class="header-spacer"></span>
                     <button class="panel-pause-btn paused" id="inspector-pause-btn-header" title="Pause/Resume Component Updates">
                         <span id="inspector-pause-icon-header">▶</span>
                         <span id="inspector-pause-label-header">PLAY</span>
                     </button>
                     <button class="copy-btn" id="inspector-copy-btn" title="Copy as JSON">&#128203;</button>
+                    <button class="info-btn" data-info="inspector" title="Inspector Help">i</button>
                 </div>
                 <div class="component-filter-box">
                     <span class="prompt">⚙</span>
@@ -136,11 +153,11 @@
                 <section class="panel asset-browser-panel">
                     <div class="panel-header">
                         <span class="panel-title">┌─[ ASSET BROWSER ]───────────┐</span>
+                        <button class="info-btn" data-info="asset-browser" title="Asset Browser Help">i</button>
                     </div>
                     <div class="search-box">
                         <span class="prompt">/</span>
                         <input type="text" id="asset-filter" placeholder="Search assets..." autocomplete="off">
-                        <button class="expand-all-btn" id="expand-all-btn" title="Expand/Collapse all">⊞</button>
                         <button class="refresh-assets-btn" id="refresh-assets-btn" title="Refresh Assets">↻ REFRESH</button>
                     </div>
                     <div class="asset-tree" id="asset-tree">
@@ -157,7 +174,9 @@
                 <section class="panel asset-detail-panel">
                     <div class="panel-header">
                         <span class="panel-title">┌─[ ASSET DETAIL ]────────────┐</span>
+                        <span class="header-spacer"></span>
                         <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
+                        <button class="info-btn" data-info="asset-detail" title="Asset Detail Help">i</button>
                     </div>
                     <div class="asset-detail" id="asset-detail">
                         <div class="empty-state">
@@ -168,7 +187,7 @@
 
                 <!-- Right: History Sidebar -->
                 <aside class="history-sidebar">
-                    <div class="sidebar-header">HISTORY</div>
+                    <div class="sidebar-header">HISTORY <span class="header-spacer"></span><button class="info-btn small" data-info="history" title="History Help">i</button></div>
                     <div class="history-list" id="history-list">
                         <div class="empty-state small">
                             <pre>No patches yet</pre>
@@ -183,7 +202,9 @@
             <section class="panel alarms-panel-section">
                 <div class="panel-header">
                     <span class="panel-title">┌─[ WORLD ALARMS ]────────────────────────┐</span>
+                    <span class="header-spacer"></span>
                     <button class="control-btn" id="alarms-refresh-btn" title="Refresh Alarms">↻ REFRESH</button>
+                    <button class="info-btn" data-info="alarms" title="Alarms Help">i</button>
                 </div>
                 <div class="alarms-toolbar">
                     <input type="text" id="alarms-filter" class="filter-input" placeholder="Filter by name or ID...">
@@ -225,21 +246,23 @@
                     <span class="toggle-arrow" id="packet-log-toggle">&#9660;</span>
                     [ PACKET LOG ]
                 </span>
+                <span class="header-spacer"></span>
                 <div class="packet-log-controls">
-                    <button class="control-btn" id="packet-fullscreen-btn" title="Toggle Fullscreen (F)">⤢</button>
-                    <button class="control-btn packet-pause-btn active" id="packet-pause-btn" title="Pause/Resume">
-                        <span id="packet-pause-icon">▶</span>
-                        <span id="packet-pause-label">PLAY</span>
-                    </button>
-                    <button class="control-btn" id="packet-clear-btn" title="Clear Log">X</button>
                     <input type="text" id="packet-filter-input" placeholder="Filter packets..." autocomplete="off">
                     <select id="packet-direction-filter">
                         <option value="all">All</option>
                         <option value="inbound">Inbound</option>
                         <option value="outbound">Outbound</option>
                     </select>
+                    <button class="control-btn" id="packet-fullscreen-btn" title="Toggle Fullscreen (F)">⤢</button>
+                    <button class="control-btn packet-pause-btn active" id="packet-pause-btn" title="Pause/Resume">
+                        <span id="packet-pause-icon">▶</span>
+                        <span id="packet-pause-label">PLAY</span>
+                    </button>
+                    <button class="control-btn" id="packet-clear-btn" title="Clear Log">X</button>
                     <span class="packet-count" id="packet-count">0 packets</span>
                 </div>
+                <button class="info-btn small" data-info="packets" title="Packet Log Help">i</button>
             </div>
             <div class="packet-log-body" id="packet-log-body">
                 <div class="packet-list" id="packet-list">
@@ -259,11 +282,18 @@
         <section class="panel live-changes-panel" id="live-changes-panel">
             <div class="live-changes-header">
                 <span class="panel-title">[ LIVE CHANGES ]</span>
+                <span class="header-spacer"></span>
+                <div class="live-filters">
+                    <input type="text" id="live-filter-entity" placeholder="Entity..." class="mini-filter" autocomplete="off">
+                    <input type="text" id="live-filter-id" placeholder="ID..." class="mini-filter" autocomplete="off">
+                    <input type="text" id="live-filter-component" placeholder="Component..." class="mini-filter" autocomplete="off">
+                </div>
                 <button class="panel-pause-btn paused" id="live-changes-pause-btn" title="Pause/Resume Live Changes">
                     <span id="live-changes-pause-icon">▶</span>
                     <span id="live-changes-pause-label">PLAY</span>
                 </button>
                 <button class="control-btn" id="live-changes-clear-btn" title="Clear">X</button>
+                <button class="info-btn small" data-info="live" title="Live Changes Help">i</button>
             </div>
             <div class="live-changes-content" id="live-changes-content">
                 <div class="empty-state small">
@@ -290,6 +320,8 @@
                     <span id="global-pause-icon">▶</span>
                     <span id="global-pause-label">RESUME ALL</span>
                 </button>
+                <button class="toggle-panel-btn active" id="toggle-packets-btn" title="Toggle Packet Log Panel">PACKETS</button>
+                <button class="toggle-panel-btn active" id="toggle-live-btn" title="Toggle Live Changes Panel">LIVE</button>
             </div>
             <div class="footer-right">
                 <button class="settings-toggle-btn" id="settings-toggle-btn" title="Settings">&#9881;</button>
@@ -355,17 +387,36 @@
                         <div class="pane-header">ORIGINAL (read-only)</div>
                         <pre id="original-json" class="json-view"></pre>
                     </div>
+                    <div class="editor-resize-handle" id="editor-resize-handle"></div>
                     <div class="editor-pane modified-pane">
-                        <div class="pane-header">MODIFIED</div>
-                        <textarea id="modified-json" class="json-edit" spellcheck="false"></textarea>
+                        <div class="pane-header">
+                            <span>MODIFIED</span>
+                            <div class="editor-toggles">
+                                <button class="editor-toggle active" id="toggle-guides" title="Toggle indent guides">⋮</button>
+                                <button class="editor-toggle active" id="toggle-brackets" title="Toggle bracket matching">{ }</button>
+                                <button class="editor-toggle active" id="toggle-fold" title="Toggle code folding">▼</button>
+                            </div>
+                        </div>
+                        <div class="json-editor-container" id="modified-json-container">
+                            <textarea id="modified-json" class="json-edit" spellcheck="false"></textarea>
+                        </div>
                     </div>
                 </div>
 
                 <!-- JSON Mode Editor -->
                 <div class="patch-editor json-mode hidden" id="patch-editor-json">
                     <div class="editor-pane full-width">
-                        <div class="pane-header">PATCH JSON</div>
-                        <textarea id="direct-json" class="json-edit" spellcheck="false" placeholder='{"BaseAssetPath": "...", "Health": 150}'></textarea>
+                        <div class="pane-header">
+                            <span>PATCH JSON</span>
+                            <div class="editor-toggles">
+                                <button class="editor-toggle active" id="toggle-guides-direct" title="Toggle indent guides">⋮</button>
+                                <button class="editor-toggle active" id="toggle-brackets-direct" title="Toggle bracket matching">{ }</button>
+                                <button class="editor-toggle active" id="toggle-fold-direct" title="Toggle code folding">▼</button>
+                            </div>
+                        </div>
+                        <div class="json-editor-container" id="direct-json-container">
+                            <textarea id="direct-json" class="json-edit" spellcheck="false" placeholder='{"BaseAssetPath": "...", "Health": 150}'></textarea>
+                        </div>
                     </div>
                 </div>
 
@@ -476,6 +527,15 @@
                 <span class="settings-status" id="settings-status"></span>
             </div>
         </div>
+    </div>
+
+    <!-- Info Popover -->
+    <div id="info-popover" class="info-popover hidden">
+        <div class="info-popover-header">
+            <span class="info-popover-title"></span>
+            <button class="info-popover-close">&times;</button>
+        </div>
+        <div class="info-popover-content"></div>
     </div>
 
     <script src="app.js"></script>

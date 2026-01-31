@@ -223,6 +223,30 @@ public class OutgoingMessage {
         return new OutgoingMessage(MessageType.DRAFTS_LIST, new DraftsListData(drafts));
     }
 
+    /**
+     * Create PATCH_DELETED message confirming patch deletion.
+     */
+    public static OutgoingMessage patchDeleted(String filename, boolean success, String error) {
+        return new OutgoingMessage(MessageType.PATCH_DELETED, new PatchDeletedData(filename, success, error));
+    }
+
+    /**
+     * Create PATCHES_LIST message with list of published patches (filenames only).
+     */
+    public static OutgoingMessage patchesList(List<String> patches) {
+        return new OutgoingMessage(MessageType.PATCHES_LIST, new PatchesListData(patches, null));
+    }
+
+    /**
+     * Create PATCHES_LIST message with list of published patches including content.
+     */
+    public static OutgoingMessage patchesListWithContent(List<com.laits.inspector.core.PatchManager.PatchInfo> patches) {
+        var patchInfoList = patches.stream()
+                .map(p -> new PatchInfoData(p.filename(), p.content(), p.modifiedTime()))
+                .toList();
+        return new OutgoingMessage(MessageType.PATCHES_LIST, new PatchesListData(null, patchInfoList));
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // FEATURE DETECTION MESSAGES
     // ═══════════════════════════════════════════════════════════════
@@ -501,6 +525,50 @@ public class OutgoingMessage {
         }
     }
 
+    /**
+     * Data for patch deleted response.
+     */
+    private static class PatchDeletedData {
+        private final String filename;
+        private final boolean success;
+        private final String error;
+
+        PatchDeletedData(String filename, boolean success, String error) {
+            this.filename = filename;
+            this.success = success;
+            this.error = error;
+        }
+    }
+
+    /**
+     * Data for patches list response.
+     * Can include either just filenames (patches) or full info (patchesWithContent).
+     */
+    private static class PatchesListData {
+        private final List<String> patches;
+        private final List<PatchInfoData> patchesWithContent;
+
+        PatchesListData(List<String> patches, List<PatchInfoData> patchesWithContent) {
+            this.patches = patches;
+            this.patchesWithContent = patchesWithContent;
+        }
+    }
+
+    /**
+     * Full patch info including content.
+     */
+    private static class PatchInfoData {
+        private final String filename;
+        private final String content;
+        private final long modifiedTime;
+
+        PatchInfoData(String filename, String content, long modifiedTime) {
+            this.filename = filename;
+            this.content = content;
+            this.modifiedTime = modifiedTime;
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // LIVE ENTITY QUERY MESSAGES
     // ═══════════════════════════════════════════════════════════════
@@ -619,6 +687,60 @@ public class OutgoingMessage {
             this.alarmName = alarmName;
             this.state = state;
             this.entities = entities;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS MESSAGES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Create SURNAME_SET message with result of surname change.
+     */
+    public static OutgoingMessage surnameSet(long entityId, String surname, boolean success, String error) {
+        return new OutgoingMessage(MessageType.SURNAME_SET, new SurnameSetData(entityId, surname, success, error));
+    }
+
+    /**
+     * Create TELEPORT_RESULT message with teleport outcome.
+     */
+    public static OutgoingMessage teleportResult(long entityId, boolean success, String error) {
+        return new OutgoingMessage(MessageType.TELEPORT_RESULT, new TeleportResultData(entityId, success, error));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS DATA CLASSES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Data for surname set response.
+     */
+    private static class SurnameSetData {
+        private final long entityId;
+        private final String surname;
+        private final boolean success;
+        private final String error;
+
+        SurnameSetData(long entityId, String surname, boolean success, String error) {
+            this.entityId = entityId;
+            this.surname = surname;
+            this.success = success;
+            this.error = error;
+        }
+    }
+
+    /**
+     * Data for teleport result response.
+     */
+    private static class TeleportResultData {
+        private final long entityId;
+        private final boolean success;
+        private final String error;
+
+        TeleportResultData(long entityId, boolean success, String error) {
+            this.entityId = entityId;
+            this.success = success;
+            this.error = error;
         }
     }
 }

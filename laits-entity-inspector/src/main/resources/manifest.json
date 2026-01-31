@@ -1,7 +1,7 @@
 {
     "Group": "Lait",
     "Name": "EntityInspector",
-    "Version": "0.1.2",
+    "Version": "0.1.3",
     "Description": "Live entity and component data inspector with WebSocket transport",
     "Authors": [
         {
