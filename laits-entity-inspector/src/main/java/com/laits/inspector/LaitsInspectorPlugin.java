@@ -1,11 +1,14 @@
 package com.laits.inspector;
 
+import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.laits.inspector.commands.InspectorCommand;
+import com.laits.inspector.component.LaitInspectorComponent;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.core.InspectorCore;
 import com.laits.inspector.systems.EntityLifecycleSystem;
@@ -26,7 +29,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class LaitsInspectorPlugin extends JavaPlugin {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    public static final String VERSION = "0.1.2";
+    public static final String VERSION = "0.1.3";
 
     private static LaitsInspectorPlugin INSTANCE;
 
@@ -36,6 +39,7 @@ public class LaitsInspectorPlugin extends JavaPlugin {
     private PacketLoggerSystem packetLoggerSystem;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tickTask;
+    private ComponentType<EntityStore, LaitInspectorComponent> inspectorComponentType;
 
     public LaitsInspectorPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -54,11 +58,25 @@ public class LaitsInspectorPlugin extends JavaPlugin {
         return config;
     }
 
+    public ComponentType<EntityStore, LaitInspectorComponent> getInspectorComponentType() {
+        return inspectorComponentType;
+    }
+
     @Override
     protected void setup() {
         // Load configuration
         Path configPath = this.getDataDirectory().resolve("config.json");
         config = InspectorConfig.load(configPath);
+
+        // Register custom component for surname persistence
+        try {
+            inspectorComponentType = getEntityStoreRegistry().registerComponent(
+                    LaitInspectorComponent.class, "LaitInspector", LaitInspectorComponent.CODEC);
+            LaitInspectorComponent.setComponentType(inspectorComponentType);
+            LOGGER.atInfo().log("LaitInspectorComponent registered");
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to register LaitInspectorComponent: %s", e.getMessage());
+        }
 
         // Create core
         core = new InspectorCore(config);

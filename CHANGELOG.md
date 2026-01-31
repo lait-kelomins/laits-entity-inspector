@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.3
+
+### Added
+- **Help System** - Info (i) buttons throughout the app with contextual help popovers for each panel
+- **Patch History on Startup** - All existing patches are now loaded into history when the app starts
+- **Delete Patch Warning** - Warning message near delete button about game restart requirement
+
+### Fixed
+- **Teleport** - Fixed player teleport using proper `Teleport.createForPlayer()` API
+- **Surname Field** - Fixed capitalization mismatch between backend and GUI
+
+### Changed
+- **UI Layout** - Consistent button alignment across all panel headers (buttons grouped on right, info button rightmost)
+- **Default Settings** - Header minimized, packet log and live changes panels hidden by default on first start
+- **Info Button Style** - Clean serif italic "i" instead of pixelated Unicode character
+
+---
+
 ## v0.1.2
 
 ### Added

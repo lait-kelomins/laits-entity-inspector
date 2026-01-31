@@ -480,6 +480,85 @@ public class PatchManager {
         LOGGER.atInfo().log("Published patch to: %s (absolute: %s)", patchPath, patchPath.toAbsolutePath());
     }
 
+    /**
+     * Delete a published patch.
+     */
+    public void deletePatch(String filename) throws IOException {
+        if (patchDirectory == null) {
+            throw new IOException("Patch directory not configured (is Hytalor installed?)");
+        }
+
+        String safeFilename = sanitizeFilename(filename);
+        if (!safeFilename.endsWith(".json")) {
+            safeFilename += ".json";
+        }
+
+        Path patchPath = patchDirectory.resolve(safeFilename);
+
+        if (!Files.exists(patchPath)) {
+            throw new IOException("Patch file not found: " + safeFilename);
+        }
+
+        Files.delete(patchPath);
+        LOGGER.atInfo().log("Deleted patch: %s", patchPath);
+    }
+
+    /**
+     * List all published patches in the patch directory.
+     */
+    public List<String> listPublishedPatches() {
+        if (patchDirectory == null || !Files.exists(patchDirectory)) {
+            return java.util.Collections.emptyList();
+        }
+
+        try (var stream = Files.list(patchDirectory)) {
+            return stream
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            LOGGER.atWarning().log("Failed to list patches: %s", e.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    /**
+     * Info about a published patch including its content.
+     */
+    public record PatchInfo(String filename, String content, long modifiedTime) {}
+
+    /**
+     * List all published patches with their content.
+     * Used to populate history on client connection.
+     */
+    public List<PatchInfo> listPublishedPatchesWithContent() {
+        if (patchDirectory == null || !Files.exists(patchDirectory)) {
+            return java.util.Collections.emptyList();
+        }
+
+        try (var stream = Files.list(patchDirectory)) {
+            return stream
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .sorted()
+                    .map(p -> {
+                        try {
+                            String content = Files.readString(p, StandardCharsets.UTF_8);
+                            long modifiedTime = Files.getLastModifiedTime(p).toMillis();
+                            return new PatchInfo(p.getFileName().toString(), content, modifiedTime);
+                        } catch (IOException e) {
+                            LOGGER.atWarning().log("Failed to read patch %s: %s", p.getFileName(), e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
+        } catch (IOException e) {
+            LOGGER.atWarning().log("Failed to list patches: %s", e.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════

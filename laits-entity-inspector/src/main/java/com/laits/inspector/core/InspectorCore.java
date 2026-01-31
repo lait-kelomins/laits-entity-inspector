@@ -673,6 +673,28 @@ public class InspectorCore implements DataTransportListener {
     }
 
     @Override
+    public String deletePatch(String filename) {
+        try {
+            patchManager.deletePatch(filename);
+            LOGGER.atInfo().log("Deleted patch: %s", filename);
+            return null; // Success
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to delete patch %s: %s", filename, e.getMessage());
+            return e.getMessage();
+        }
+    }
+
+    @Override
+    public List<String> listPublishedPatches() {
+        return patchManager.listPublishedPatches();
+    }
+
+    @Override
+    public List<PatchManager.PatchInfo> listPublishedPatchesWithContent() {
+        return patchManager.listPublishedPatchesWithContent();
+    }
+
+    @Override
     public List<HistoryEntry> getSessionHistory() {
         return historyTracker.getHistory();
     }
@@ -767,5 +789,168 @@ public class InspectorCore implements DataTransportListener {
     @Override
     public List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
         return entityQueryService.findByAlarm(alarmName, state, limit);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public String setEntitySurname(long entityId, String surname) {
+        World world = currentWorld;
+        if (world == null) {
+            return "No world available";
+        }
+
+        // Get entity from cache to verify it exists
+        EntitySnapshot cached = cache.getEntitySnapshot(entityId);
+        if (cached == null) {
+            return "Entity not found in cache: " + entityId;
+        }
+
+        // Get UUID for more reliable lookup
+        final String targetUuid = cached.getUuid();
+        LOGGER.atInfo().log("Scheduling surname change for entity %d (UUID: %s) to: %s", entityId, targetUuid, surname);
+
+        // Schedule execution on world thread (async)
+        world.execute(() -> {
+            try {
+                var entityStore = world.getEntityStore();
+                if (entityStore == null) {
+                    LOGGER.atWarning().log("Entity store not available");
+                    return;
+                }
+
+                Store<EntityStore> store = entityStore.getStore();
+                if (store == null) {
+                    LOGGER.atWarning().log("Store not available");
+                    return;
+                }
+
+                // Find entity by UUID (more reliable than index)
+                final com.hypixel.hytale.component.Ref<EntityStore>[] foundRef = new com.hypixel.hytale.component.Ref[1];
+                var uuidType = com.hypixel.hytale.server.core.entity.UUIDComponent.getComponentType();
+
+                store.forEachChunk((chunk, buffer) -> {
+                    if (foundRef[0] != null) return; // Already found
+                    for (int i = 0; i < chunk.size(); i++) {
+                        var ref = chunk.getReferenceTo(i);
+                        if (ref == null) continue;
+
+                        var uuidComp = chunk.getComponent(i, uuidType);
+                        if (uuidComp != null && uuidComp.getUuid() != null) {
+                            if (uuidComp.getUuid().toString().equals(targetUuid)) {
+                                foundRef[0] = ref;
+                                return;
+                            }
+                        }
+                    }
+                });
+
+                if (foundRef[0] == null) {
+                    LOGGER.atWarning().log("Entity not found in world by UUID: %s (id: %d)", targetUuid, entityId);
+                    return;
+                }
+
+                // Store surname in LaitInspectorComponent for persistence
+                var inspectorType = com.laits.inspector.component.LaitInspectorComponent.getComponentType();
+                if (inspectorType != null) {
+                    var inspector = store.ensureAndGetComponent(foundRef[0], inspectorType);
+                    if (inspector != null) {
+                        inspector.setSurname(surname);
+                        LOGGER.atInfo().log("Stored surname in LaitInspectorComponent for entity %d", entityId);
+                    }
+                }
+
+                // Also set Nameplate for in-game display
+                var nameplateType = com.hypixel.hytale.server.core.entity.nameplate.Nameplate.getComponentType();
+                var nameplate = store.ensureAndGetComponent(foundRef[0], nameplateType);
+                if (nameplate != null) {
+                    nameplate.setText(surname);
+                }
+
+                LOGGER.atInfo().log("Successfully set surname for entity %d to: %s", entityId, surname);
+
+            } catch (Exception e) {
+                LOGGER.atWarning().log("Failed to set surname for entity %d: %s", entityId, e.getMessage());
+            }
+        });
+
+        return null; // Return success (operation scheduled)
+    }
+
+    @Override
+    public String teleportToEntity(long entityId) {
+        World world = currentWorld;
+        if (world == null) {
+            LOGGER.atWarning().log("Teleport failed: No world available");
+            return "No world available";
+        }
+
+        // Get entity position from cache
+        EntitySnapshot cached = cache.getEntitySnapshot(entityId);
+        if (cached == null) {
+            LOGGER.atWarning().log("Teleport failed: Entity %d not found in cache", entityId);
+            return "Entity not found: " + entityId;
+        }
+
+        final double targetX = cached.getX();
+        final double targetY = cached.getY();
+        final double targetZ = cached.getZ();
+
+        LOGGER.atInfo().log("Teleporting to entity %d at %.2f, %.2f, %.2f", entityId, targetX, targetY, targetZ);
+
+        try {
+            // Execute on world thread
+            world.execute(() -> {
+                try {
+                    var players = world.getPlayers();
+                    LOGGER.atInfo().log("Found %d players in world", players.size());
+
+                    if (players.isEmpty()) {
+                        LOGGER.atWarning().log("No players found in world to teleport");
+                        return;
+                    }
+
+                    for (var player : players) {
+                        if (player == null) {
+                            LOGGER.atWarning().log("Null player in players list");
+                            continue;
+                        }
+
+                        var ref = player.getReference();
+                        if (ref == null) {
+                            LOGGER.atWarning().log("Player %s has no reference", player.getDisplayName());
+                            continue;
+                        }
+
+                        var store = ref.getStore();
+                        if (store == null) {
+                            LOGGER.atWarning().log("Player %s reference has no store", player.getDisplayName());
+                            continue;
+                        }
+
+                        // Create teleport component using the proper API
+                        var targetPos = new com.hypixel.hytale.math.vector.Vector3d(targetX, targetY, targetZ);
+                        var targetRot = new com.hypixel.hytale.math.vector.Vector3f(0, 0, 0);
+                        var teleport = com.hypixel.hytale.server.core.modules.entity.teleport.Teleport.createForPlayer(world, targetPos, targetRot);
+
+                        // Add the teleport component to the player
+                        store.addComponent(ref, com.hypixel.hytale.server.core.modules.entity.teleport.Teleport.getComponentType(), teleport);
+
+                        LOGGER.atInfo().log("Teleported player %s to %.2f, %.2f, %.2f using Teleport component",
+                            player.getDisplayName(), targetX, targetY, targetZ);
+                    }
+                } catch (Exception e) {
+                    LOGGER.atWarning().log("Exception during teleport: %s", e.getMessage());
+                    e.printStackTrace();
+                }
+            });
+
+            return null; // Success (scheduled)
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to schedule teleport: %s", e.getMessage());
+            return "Failed to teleport: " + e.getMessage();
+        }
     }
 }

@@ -182,6 +182,31 @@ public interface DataTransportListener {
     }
 
     /**
+     * Delete a published patch.
+     *
+     * @param filename The filename to delete
+     * @return Error message or null on success
+     */
+    default String deletePatch(String filename) {
+        return "Not implemented";
+    }
+
+    /**
+     * List all published patches (filenames only).
+     */
+    default List<String> listPublishedPatches() {
+        return null;
+    }
+
+    /**
+     * List all published patches with content.
+     * Used to populate client history on connection.
+     */
+    default List<com.laits.inspector.core.PatchManager.PatchInfo> listPublishedPatchesWithContent() {
+        return null;
+    }
+
+    /**
      * Get session patch history.
      */
     default List<HistoryEntry> getSessionHistory() {
@@ -271,5 +296,30 @@ public interface DataTransportListener {
      */
     default List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
         return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ENTITY ACTIONS CALLBACKS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Set an entity's surname (nameplate text).
+     *
+     * @param entityId The entity ID
+     * @param surname The new surname text
+     * @return Error message or null on success
+     */
+    default String setEntitySurname(long entityId, String surname) {
+        return "Not implemented";
+    }
+
+    /**
+     * Teleport the player to an entity's position.
+     *
+     * @param entityId The entity ID to teleport to
+     * @return Error message or null on success
+     */
+    default String teleportToEntity(long entityId) {
+        return "Not implemented";
     }
 }
