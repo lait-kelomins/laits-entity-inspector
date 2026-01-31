@@ -6,6 +6,8 @@
 
 Real-time entity debugging tools for Hytale modding.
 
+> **Hytalor Integration**: The inspector automatically detects when [Hytalor](https://www.curseforge.com/hytale/mods/hytalor) is loaded, unlocking the Asset Browser and live asset patching — apply changes to game assets without restarting the server.
+
 ---
 
 ## Installation
@@ -35,6 +37,8 @@ Run the updater again on new releases for auto-updating - you'll be notified on 
 - **Expandable fields** - Deep-expand complex packet data
 
 ### Asset Browser (requires Hytalor)
+- **Auto-detection** - Automatically detects if Hytalor is loaded in-game
+- **Live asset patching** - When Hytalor is present, publish patches that take effect immediately without restart
 - **Browse all game assets** - Roles, Prefabs, Items, Blocks, etc.
 - **Search assets** - Find assets by name across all categories
 - **View asset JSON** - See the full asset definition
