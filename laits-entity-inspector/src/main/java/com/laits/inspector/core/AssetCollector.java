@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  */
 public class AssetCollector {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
 
     // Grace period delay for second initialization (allows mods to finish loading)
     private static final int GRACE_PERIOD_SECONDS = 5;

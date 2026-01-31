@@ -14,7 +14,7 @@ import java.util.Map;
  * Provides factory methods for creating protocol-compliant messages.
  */
 public class OutgoingMessage {
-    private static final Gson GSON = new GsonBuilder().create();
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 
     private final MessageType type;
     private final Object data;

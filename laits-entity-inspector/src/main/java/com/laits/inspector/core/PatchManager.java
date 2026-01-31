@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  */
 public class PatchManager {
     private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
 
     private Path draftDirectory;
     private Path patchDirectory;

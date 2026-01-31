@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.4
+
+### Fixed
+- **JSON Display** - Special characters like `&&` now display correctly instead of `\u0026\u0026` in the asset editor
+
+---
+
 ## v0.1.3
 
 ### Added
