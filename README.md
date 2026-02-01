@@ -1,8 +1,8 @@
+# **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
+
 # Lait's Entity Inspector
 
 ![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1506/321/lei-standard-png.png)
-
-> **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
 
 Real-time entity debugging tools for Hytale modding.
 
