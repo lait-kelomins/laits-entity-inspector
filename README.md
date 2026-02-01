@@ -1,6 +1,6 @@
-# Lait's Entity Inspector
+<img width="1907" height="907" alt="image" src="https://github.com/user-attachments/assets/6ef2511f-3425-455e-9de6-dac86096bbf0" /># Lait's Entity Inspector
 
-![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1499/614/entityinspector-screen-png.png)
+![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1506/321/lei-standard-png.png)
 
 > **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
 
@@ -122,11 +122,9 @@ Output: `build/libs/laits-entity-inspector-<version>.jar`
 
 ## Screenshots
 
-### Entity List with Filters
-![Entity List](https://media.forgecdn.net/attachments/description/1446511/description_9abe1583-d693-41e3-b3db-581e7f2269c8.png)
-
-### Component Inspector
-![Component Inspector](https://media.forgecdn.net/attachments/description/1446511/description_403c2744-f014-40e1-ad00-0be97269a6bc.png)
+![Entity List](https://media.forgecdn.net/attachments/1506/323/lei-assets-png.png)
+![Component Inspector](https://media.forgecdn.net/attachments/1506/324/lei-patch-png.png)
+![Alarms](https://media.forgecdn.net/attachments/1506/325/lei-alarms-png.png)
 
 ---
 
