@@ -1,4 +1,4 @@
-<img width="1907" height="907" alt="image" src="https://github.com/user-attachments/assets/6ef2511f-3425-455e-9de6-dac86096bbf0" /># Lait's Entity Inspector
+# Lait's Entity Inspector
 
 ![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1506/321/lei-standard-png.png)
 
