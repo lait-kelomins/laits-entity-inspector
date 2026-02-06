@@ -459,6 +459,19 @@ body {
     flex-shrink: 0;
 }
 
+.inspector-panel.fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    z-index: 1000;
+    border-radius: 0;
+    margin: 0;
+}
+
 /* Resize handle between panels */
 .resize-handle {
     width: 18px;
@@ -899,9 +912,12 @@ body {
 
 .inspector-content {
     flex: 1;
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     padding: 12px;
     background-image: var(--dither-1);
+    min-height: 0;
 }
 
 .inspector-content::-webkit-scrollbar {
@@ -1850,6 +1866,177 @@ body {
     flex-direction: column;
 }
 
+/* Inspector sub-tabs (smaller variant of main tab bar) */
+.inspector-subtab-bar {
+    display: flex;
+    gap: 2px;
+    padding: 3px 0;
+    background: var(--darker);
+    border-bottom: 1px solid var(--gray);
+    flex-shrink: 0;
+}
+
+.inspector-subtab-btn {
+    padding: 3px 12px;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.inspector-subtab-btn:hover {
+    background: var(--gray);
+    color: var(--text-bright);
+}
+
+.inspector-subtab-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.inspector-subtab-content {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.inspector-subtab-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.inspector-subtab-content::-webkit-scrollbar-track {
+    background: var(--darker);
+}
+
+.inspector-subtab-content::-webkit-scrollbar-thumb {
+    background: var(--gray);
+}
+
+.inspector-subtab-content.active {
+    display: block;
+}
+
+.inspector-subtab-content[data-subtab="instructions"].active {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.instructions-scroll-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.instructions-scroll-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.instructions-scroll-body::-webkit-scrollbar-track {
+    background: var(--darker);
+}
+
+.instructions-scroll-body::-webkit-scrollbar-thumb {
+    background: var(--gray);
+}
+
+.event-log-resize-handle {
+    height: 6px;
+    cursor: row-resize;
+    background: var(--gray-dark);
+    border-top: 1px solid var(--gray);
+    border-bottom: 1px solid var(--gray);
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.event-log-resize-handle:hover,
+.event-log-resize-handle.dragging {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+}
+
+.inspector-subtab-content[data-subtab="instructions"] > .instruction-event-log {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.inspector-subtab-content[data-subtab="instructions"] > .instruction-event-log > .component-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.inspector-subtab-content[data-subtab="instructions"] > .instruction-event-log .instruction-timeline {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+}
+
+.inspector-panel.subtab-instructions .component-filter-box {
+    display: none;
+}
+
+/* Font scale control in inspector header */
+.font-scale-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 4px;
+    cursor: default;
+}
+
+.font-scale-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.font-scale-value {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 32px;
+    text-align: center;
+}
+
+.font-scale-control input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 60px;
+    height: 4px;
+    background: var(--gray);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.font-scale-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.font-scale-control input[type="range"]::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    LIVE CHANGES PANEL
    ═══════════════════════════════════════════════════════════════ */
@@ -2224,6 +2411,26 @@ body {
     padding: 12px;
 }
 
+.refresh-asset-btn {
+    background: var(--gray-dark);
+    color: var(--text);
+    border: 1px solid var(--gray);
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.refresh-asset-btn:hover {
+    background: var(--gray);
+    border-color: var(--text);
+}
+
+.refresh-asset-btn.hidden {
+    display: none;
+}
+
 .patch-btn {
     background: var(--warning);
     color: var(--black);
@@ -2335,6 +2542,40 @@ body {
 
 .history-item .operation.loaded {
     color: var(--text-dim);
+}
+
+.history-item .operation.external {
+    color: var(--warning);
+}
+
+/* Readonly patches from other mods */
+.history-item.readonly {
+    opacity: 0.85;
+    border-left: 2px solid var(--warning);
+}
+
+.history-item .source-mod {
+    font-size: 10px;
+    color: var(--warning);
+    font-weight: normal;
+}
+
+.history-item .readonly-badge {
+    font-size: 9px;
+    background: var(--warning);
+    color: var(--bg);
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+
+/* Readonly warning in history modal */
+.history-modal-readonly-warning {
+    padding: 8px 16px;
+    background: rgba(255, 193, 7, 0.15);
+    border-bottom: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 11px;
+    text-align: center;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2824,6 +3065,35 @@ body {
     gap: 4px;
 }
 
+/* Refresh button for original pane */
+.refresh-editor-btn {
+    background: transparent;
+    border: 1px solid var(--gray);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.15s ease;
+}
+
+.refresh-editor-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.refresh-editor-btn.loading {
+    animation: spin 1s linear infinite;
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .editor-toggle {
     background: transparent;
     border: 1px solid var(--gray);
@@ -3200,6 +3470,454 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   INSTRUCTION SECTION IN INSPECTOR
+   ═══════════════════════════════════════════════════════════════ */
+
+.instruction-section .component-name {
+    color: #cc88ff;
+}
+
+.instruction-section .component-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.instruction-role-name {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-left: auto;
+    margin-right: 8px;
+}
+
+.instruction-refresh-btn {
+    background: none;
+    border: 1px solid var(--gray-light);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    transition: all 0.15s;
+}
+
+.instruction-refresh-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.instruction-state-machine {
+    display: flex;
+    gap: 12px;
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--gray-dark);
+    border-bottom: 1px solid var(--gray);
+}
+
+.instruction-label {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.instruction-value {
+    color: var(--text-highlight);
+    font-size: 12px;
+}
+
+/* Parameters */
+.instruction-params {
+    border-bottom: 1px solid var(--gray);
+}
+
+.instruction-params-header {
+    display: flex;
+    gap: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    transition: background 0.15s;
+}
+
+.instruction-params-header:hover {
+    background: var(--gray-dark);
+}
+
+.instruction-params-body {
+    padding: 0 8px 4px;
+}
+
+.instruction-params-body.collapsed {
+    display: none;
+}
+
+.instruction-param-row {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.param-key {
+    color: var(--info);
+    min-width: 120px;
+}
+
+.param-value {
+    color: var(--text);
+    word-break: break-all;
+}
+
+/* Instruction groups */
+.instruction-group {
+    border-top: 1px solid var(--gray);
+    padding-top: 4px;
+}
+
+.instruction-group-header {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Instruction nodes */
+.instruction-node {
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--gray-dark);
+}
+
+.instruction-node:last-child {
+    border-bottom: none;
+}
+
+.instruction-node-header {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-bright);
+    cursor: default;
+}
+
+.node-toggle {
+    display: inline-block;
+    width: 12px;
+    font-size: 9px;
+    color: var(--text-dim);
+    user-select: none;
+    text-align: center;
+    pointer-events: none;
+}
+
+.node-header-text.collapsible-text {
+    cursor: pointer;
+}
+
+.node-header-text.collapsible-text:hover {
+    color: var(--white);
+}
+
+.instruction-node-body.collapsed {
+    display: none;
+}
+
+.instruction-sensor-summary {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 4px;
+}
+
+.instruction-index {
+    color: var(--text-dim);
+    margin-right: 4px;
+}
+
+.node-surname {
+    color: var(--accent);
+    font-weight: bold;
+    margin-right: 4px;
+}
+
+.node-surname-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0 3px;
+    margin-left: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.instruction-node-header:hover .node-surname-btn {
+    opacity: 0.6;
+}
+
+.node-surname-btn:hover {
+    opacity: 1 !important;
+    color: var(--accent);
+}
+
+.instruction-tag {
+    color: var(--info);
+    font-size: 10px;
+}
+
+.instruction-continue {
+    color: var(--accent);
+    font-size: 10px;
+}
+
+/* Sensor nodes in instruction tree */
+.sensor-node {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 0;
+}
+
+.sensor-type {
+    color: #cc88ff;
+    font-weight: bold;
+}
+
+.sensor-alarm-name {
+    color: var(--warning);
+}
+
+.sensor-alarm-expect {
+    color: var(--text-dim);
+}
+
+.alarm-state-set {
+    color: var(--warning);
+    font-weight: bold;
+}
+
+.alarm-state-passed {
+    color: var(--success);
+    font-weight: bold;
+}
+
+.alarm-state-unset {
+    color: var(--text-dim);
+    opacity: 0.7;
+}
+
+.sensor-alarm-clear {
+    color: var(--error);
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.sensor-timer-info {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.timer-state-running {
+    color: var(--success);
+    font-weight: bold;
+}
+
+.timer-state-paused {
+    color: var(--warning);
+}
+
+.timer-state-stopped {
+    color: var(--text-dim);
+    opacity: 0.7;
+}
+
+.sensor-flags {
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.sensor-triggered {
+    color: var(--warning);
+    font-weight: bold;
+}
+
+.sensor-child {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 0;
+}
+
+.sensor-tree-line {
+    color: var(--text-dim);
+}
+
+.sensor-properties {
+    color: var(--text-dim);
+    font-size: 10px;
+}
+
+.sensor-prop {
+    margin-right: 6px;
+    color: var(--text);
+}
+
+/* Action badges in instruction tree */
+.instruction-actions {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 0;
+}
+
+.action-badge {
+    display: inline-block;
+    background: var(--gray);
+    color: var(--text);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin: 1px 2px;
+    font-size: 10px;
+}
+
+.action-badge.action-active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.action-badge.action-triggered {
+    background: rgba(255, 204, 0, 0.15);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+
+.action-flags {
+    font-size: 9px;
+    opacity: 0.8;
+}
+
+.action-properties {
+    font-size: 0.85em;
+    opacity: 0.9;
+}
+
+.action-prop {
+    margin-left: 4px;
+    color: var(--text-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INSTRUCTION EVENT LOG (Timeline)
+   ═══════════════════════════════════════════════════════════════ */
+
+.instruction-event-clear-btn {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--gray);
+    color: var(--text-dim);
+    font-size: 10px;
+    padding: 1px 5px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1;
+}
+
+.instruction-event-clear-btn:hover {
+    color: var(--error);
+    border-color: var(--error);
+}
+
+.instruction-timeline {
+    border-left: 2px solid var(--gray-light);
+    margin-left: 12px;
+    max-height: 240px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--gray) var(--dark);
+}
+
+.instruction-event-empty {
+    padding: 8px 8px 8px 20px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-style: italic;
+}
+
+.instruction-event {
+    position: relative;
+    padding: 3px 8px 3px 20px;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.instruction-event::before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 7px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--text-dim);
+    background: var(--dark);
+}
+
+/* Event type dot colors */
+.instruction-event.event-type-state::before {
+    border-color: #cc88ff;
+}
+
+.instruction-event.event-type-alarm::before {
+    border-color: var(--warning);
+}
+
+.instruction-event.event-type-timer::before {
+    border-color: var(--success);
+}
+
+.instruction-event.event-type-sensor::before {
+    border-color: #ff9632;
+}
+
+.instruction-event.event-type-action::before {
+    border-color: var(--info);
+}
+
+.event-time {
+    color: var(--text-dim);
+    margin-right: 6px;
+    font-size: 10px;
+}
+
+.event-label {
+    color: var(--text-bright);
+}
+
+/* Type-specific label colors for emphasis */
+.event-type-state .event-label {
+    color: #cc88ff;
+}
+
+.event-type-alarm .event-label {
+    color: var(--warning);
+}
+
+.event-type-timer .event-label {
+    color: var(--success);
+}
+
+.event-type-sensor .event-label {
+    color: #ff9632;
+}
+
+.event-type-action .event-label {
+    color: var(--info);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    GLOBAL ALARMS PANEL (Tab)
    ═══════════════════════════════════════════════════════════════ */
 
@@ -3428,6 +4146,21 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+}
+
+.alarm-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 4px;
+    border-top: 1px solid var(--darker);
+    margin-top: 2px;
+}
+
+.alarm-actions .entity-surname {
+    color: var(--info);
+    font-size: 11px;
+    margin-right: auto;
 }
 
 .alarm-badge {

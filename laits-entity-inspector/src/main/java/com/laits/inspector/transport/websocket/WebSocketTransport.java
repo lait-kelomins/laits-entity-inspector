@@ -564,6 +564,12 @@ public class WebSocketTransport implements DataTransport {
                 }
             }
 
+            case REQUEST_LIST_ALL_PATCHES -> {
+                // Send patches from all mods with editability info
+                var patches = listener.listAllPatchesAcrossMods();
+                session.send(OutgoingMessage.allPatchesList(patches != null ? patches : java.util.Collections.emptyList()).toJson());
+            }
+
             // ═══════════════════════════════════════════════════════════════
             // LIVE ENTITY QUERY MESSAGES
             // ═══════════════════════════════════════════════════════════════
@@ -665,6 +671,29 @@ public class WebSocketTransport implements DataTransport {
                     session.send(OutgoingMessage.alarmSearchResults(alarmName, state, entities).toJson());
                 } else {
                     sendError(session, "Failed to find entities by alarm");
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // NPC INSTRUCTION INSPECTION
+            // ═══════════════════════════════════════════════════════════════
+
+            case REQUEST_ENTITY_INSTRUCTIONS -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for entity instructions request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                if (!data.has("entityId")) {
+                    sendError(session, "Missing entityId");
+                    return;
+                }
+                long entityId = data.get("entityId").getAsLong();
+                var instructions = listener.onRequestEntityInstructions(entityId);
+                if (instructions != null) {
+                    session.send(OutgoingMessage.entityInstructions(entityId, instructions).toJson());
+                } else {
+                    sendError(session, "No instructions for entity: " + entityId + " (not an NPC or not found)");
                 }
             }
 

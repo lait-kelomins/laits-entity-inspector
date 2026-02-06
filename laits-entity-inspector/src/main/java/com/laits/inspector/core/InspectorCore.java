@@ -14,10 +14,7 @@ import com.laits.inspector.protocol.OutgoingMessage;
 import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -37,8 +34,9 @@ public class InspectorCore implements DataTransportListener {
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private final AtomicBoolean packetLogPaused = new AtomicBoolean(false);
 
-    // Previous snapshots for change detection
-    private final Map<Long, EntitySnapshot> previousSnapshots = new ConcurrentHashMap<>();
+    // Previous snapshots for change detection (bounded to prevent memory leaks)
+    private final Map<Long, EntitySnapshot> previousSnapshots = Collections.synchronizedMap(new LinkedHashMap<>());
+    private final Object previousSnapshotsLock = new Object();
 
     // Reference to current world for snapshot requests
     private volatile World currentWorld;
@@ -51,6 +49,9 @@ public class InspectorCore implements DataTransportListener {
 
     // Entity query service
     private final EntityQueryService entityQueryService;
+
+    // Track the last patched asset path for auto-refresh targeting
+    private volatile String lastPatchedAssetPath;
 
     public InspectorCore(InspectorConfig config) {
         this(config, new InMemoryCache());
@@ -91,8 +92,10 @@ public class InspectorCore implements DataTransportListener {
 
         // Set up callback to broadcast when automatic refreshes complete
         assetCollector.setOnRefreshComplete(() -> {
-            LOGGER.atInfo().log("Auto-refresh complete, broadcasting to clients");
-            broadcast(t -> t.broadcast(OutgoingMessage.assetsRefreshed().toJson()));
+            String patchedPath = this.lastPatchedAssetPath;
+            this.lastPatchedAssetPath = null; // Clear after use
+            LOGGER.atInfo().log("Auto-refresh complete, broadcasting to clients (patched: %s)", patchedPath);
+            broadcast(t -> t.broadcast(OutgoingMessage.assetsRefreshed(patchedPath).toJson()));
         });
 
         // Initialize asset collector (uses AssetRegistry internally)
@@ -332,7 +335,19 @@ public class InspectorCore implements DataTransportListener {
         List<String> changedComponents = detectChangedComponents(snapshot);
 
         cache.putEntity(snapshot.getEntityId(), snapshot, componentObjects);
-        previousSnapshots.put(snapshot.getEntityId(), snapshot);
+
+        // Update previous snapshots with eviction to prevent memory leak
+        synchronized (previousSnapshotsLock) {
+            previousSnapshots.put(snapshot.getEntityId(), snapshot);
+            int maxEntities = config.getMaxCachedEntities();
+            while (previousSnapshots.size() > maxEntities) {
+                Iterator<Long> it = previousSnapshots.keySet().iterator();
+                if (it.hasNext()) {
+                    it.next();
+                    it.remove();
+                }
+            }
+        }
 
         broadcast(t -> t.sendEntityUpdate(snapshot, changedComponents));
     }
@@ -651,9 +666,12 @@ public class InspectorCore implements DataTransportListener {
         try {
             patchManager.publishPatch(filename, patchJson);
 
-            // Extract base path for history
+            // Extract base path for history and auto-refresh targeting
             String basePath = extractBaseAssetPath(patchJson);
             historyTracker.recordPatch(filename, basePath, "publish");
+
+            // Store for auto-refresh targeting (client will refresh this asset)
+            this.lastPatchedAssetPath = basePath;
 
             LOGGER.atInfo().log("Patch published successfully: %s", filename);
 
@@ -692,6 +710,11 @@ public class InspectorCore implements DataTransportListener {
     @Override
     public List<PatchManager.PatchInfo> listPublishedPatchesWithContent() {
         return patchManager.listPublishedPatchesWithContent();
+    }
+
+    @Override
+    public List<PatchManager.ExternalPatchInfo> listAllPatchesAcrossMods() {
+        return patchManager.listAllPatchesAcrossMods();
     }
 
     @Override
@@ -789,6 +812,15 @@ public class InspectorCore implements DataTransportListener {
     @Override
     public List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
         return entityQueryService.findByAlarm(alarmName, state, limit);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public com.laits.inspector.data.InstructionData.InstructionTreeData onRequestEntityInstructions(long entityId) {
+        return entityQueryService.getInstructions(entityId);
     }
 
     // ═══════════════════════════════════════════════════════════════
