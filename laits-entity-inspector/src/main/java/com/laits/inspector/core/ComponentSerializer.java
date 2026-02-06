@@ -193,50 +193,79 @@ public class ComponentSerializer {
     }
 
     /**
-     * Serialize a Hytale Alarm object using field-only reads.
-     * Reads alarmInstant field directly via reflection to avoid any method
-     * call side effects. Computes isSet and hasPassed from the field value.
-     *
-     * Note: hasPassed(Instant) requires a parameter, so calling getMethod("hasPassed")
-     * (no args) throws NoSuchMethodException silently - hence field-only approach.
+     * Serialize a Hytale Alarm object using reflection.
+     * Alarms typically have: isSet(), hasPassed(), getAlarmInstant()
      */
     private Object serializeAlarm(Object alarm) {
         Map<String, Object> result = new LinkedHashMap<>();
+        Class<?> clazz = alarm.getClass();
 
         try {
-            // Read alarmInstant field directly - pure field access, no side effects
-            java.time.Instant alarmInstant = null;
-            Class<?> clazz = alarm.getClass();
-            while (clazz != null && clazz != Object.class) {
+            // Try to call isSet()
+            try {
+                java.lang.reflect.Method isSetMethod = clazz.getMethod("isSet");
+                Object isSet = isSetMethod.invoke(alarm);
+                if (isSet instanceof Boolean) {
+                    result.put("isSet", isSet);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available
+            }
+
+            // Try to call hasPassed()
+            try {
+                java.lang.reflect.Method hasPassedMethod = clazz.getMethod("hasPassed");
+                Object hasPassed = hasPassedMethod.invoke(alarm);
+                if (hasPassed instanceof Boolean) {
+                    result.put("hasPassed", hasPassed);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available
+            }
+
+            // Try to call getAlarmInstant()
+            try {
+                java.lang.reflect.Method getInstantMethod = clazz.getMethod("getAlarmInstant");
+                Object instant = getInstantMethod.invoke(alarm);
+                if (instant instanceof java.time.Instant inst) {
+                    Map<String, Object> instantData = new LinkedHashMap<>();
+                    instantData.put("epochMilli", inst.toEpochMilli());
+                    instantData.put("iso", inst.toString());
+                    result.put("alarmInstant", instantData);
+                }
+            } catch (NoSuchMethodException e) {
+                // Method not available - try alternate names
                 try {
-                    java.lang.reflect.Field instantField = clazz.getDeclaredField("alarmInstant");
-                    instantField.setAccessible(true);
-                    Object value = instantField.get(alarm);
-                    if (value instanceof java.time.Instant inst) {
-                        alarmInstant = inst;
+                    java.lang.reflect.Method getInstantMethod = clazz.getMethod("getInstant");
+                    Object instant = getInstantMethod.invoke(alarm);
+                    if (instant instanceof java.time.Instant inst) {
+                        Map<String, Object> instantData = new LinkedHashMap<>();
+                        instantData.put("epochMilli", inst.toEpochMilli());
+                        instantData.put("iso", inst.toString());
+                        result.put("alarmInstant", instantData);
                     }
-                    break;
-                } catch (NoSuchFieldException e) {
-                    clazz = clazz.getSuperclass();
+                } catch (NoSuchMethodException e2) {
+                    // Method not available
                 }
             }
 
-            // Compute isSet: alarmInstant != null
-            boolean isSet = alarmInstant != null;
-            result.put("isSet", isSet);
-
-            // Don't compute hasPassed here - alarmInstant is in game time
-            // and we don't have access to game time in this context.
-            // Downstream consumers (EntityQueryService) compute state from
-            // alarmInstant + game time directly.
-            if (alarmInstant != null) {
-                Map<String, Object> instantData = new LinkedHashMap<>();
-                instantData.put("epochMilli", alarmInstant.toEpochMilli());
-                instantData.put("iso", alarmInstant.toString());
-                result.put("alarmInstant", instantData);
+            // Try to get the scheduled time directly from field
+            try {
+                java.lang.reflect.Field instantField = clazz.getDeclaredField("alarmInstant");
+                instantField.setAccessible(true);
+                Object instant = instantField.get(alarm);
+                if (instant instanceof java.time.Instant inst && !result.containsKey("alarmInstant")) {
+                    Map<String, Object> instantData = new LinkedHashMap<>();
+                    instantData.put("epochMilli", inst.toEpochMilli());
+                    instantData.put("iso", inst.toString());
+                    result.put("alarmInstant", instantData);
+                }
+            } catch (NoSuchFieldException e) {
+                // Field not available
             }
 
         } catch (Exception e) {
+            // If all fails, return placeholder
             return "[Alarm: " + e.getMessage() + "]";
         }
 
