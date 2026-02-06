@@ -15,8 +15,6 @@ import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -232,47 +230,6 @@ public class InspectorCore implements DataTransportListener {
      */
     public EntityDataCollector getCollector() {
         return collector;
-    }
-
-    /**
-     * Refresh a single entity's data on-demand by collecting it from the world thread.
-     * This avoids the periodic polling that was causing alarm resets.
-     *
-     * @param entityId The entity ID to refresh
-     * @return Fresh EntitySnapshot, or cached snapshot if refresh fails
-     */
-    public EntitySnapshot refreshEntity(long entityId) {
-        if (!config.getDebug().isOnDemandRefresh()) {
-            return cache.getEntitySnapshot(entityId);
-        }
-
-        World world = currentWorld;
-        if (world == null) {
-            return cache.getEntitySnapshot(entityId);
-        }
-
-        CompletableFuture<EntitySnapshot> future = new CompletableFuture<>();
-        world.execute(() -> {
-            try {
-                EntityDataCollector.CollectionResult result = collector.collectEntityById(entityId, world);
-                if (result != null && result.snapshot() != null) {
-                    cache.putEntity(entityId, result.snapshot(), result.componentRefs());
-                    future.complete(result.snapshot());
-                } else {
-                    future.complete(cache.getEntitySnapshot(entityId));
-                }
-            } catch (Exception e) {
-                LOGGER.atWarning().log("Failed to refresh entity %d: %s", entityId, e.getMessage());
-                future.complete(cache.getEntitySnapshot(entityId));
-            }
-        });
-
-        try {
-            return future.get(2, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            LOGGER.atWarning().log("Timeout refreshing entity %d, returning cached data", entityId);
-            return cache.getEntitySnapshot(entityId);
-        }
     }
 
     // State management
@@ -896,7 +853,6 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public EntitySnapshot onRequestEntityDetail(long entityId) {
-        refreshEntity(entityId);
         return entityQueryService.getEntityDetail(entityId);
     }
 
@@ -905,7 +861,6 @@ public class InspectorCore implements DataTransportListener {
         if (!config.getDebug().isTimerInspection()) {
             return Collections.emptyList();
         }
-        refreshEntity(entityId);
         return entityQueryService.getTimers(entityId);
     }
 
@@ -914,7 +869,6 @@ public class InspectorCore implements DataTransportListener {
         if (!config.getDebug().isAlarmInspection()) {
             return Collections.emptyMap();
         }
-        refreshEntity(entityId);
         return entityQueryService.getAlarms(entityId);
     }
 
@@ -937,7 +891,6 @@ public class InspectorCore implements DataTransportListener {
         if (!config.getDebug().isInstructionInspection()) {
             return null;
         }
-        refreshEntity(entityId);
         return entityQueryService.getInstructions(entityId);
     }
 
