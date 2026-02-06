@@ -207,6 +207,14 @@ public interface DataTransportListener {
     }
 
     /**
+     * List patches from all asset packs (including other mods).
+     * Patches from our mod are editable, others are readonly.
+     */
+    default List<com.laits.inspector.core.PatchManager.ExternalPatchInfo> listAllPatchesAcrossMods() {
+        return null;
+    }
+
+    /**
      * Get session patch history.
      */
     default List<HistoryEntry> getSessionHistory() {
@@ -295,6 +303,20 @@ public interface DataTransportListener {
      * @return List of entity summaries with matching alarms
      */
     default List<EntitySummary> onRequestFindByAlarm(String alarmName, String state, int limit) {
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION CALLBACKS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Get instruction tree data for an NPC entity.
+     *
+     * @param entityId The entity ID
+     * @return Serialized instruction tree, or null if not an NPC / not found
+     */
+    default com.laits.inspector.data.InstructionData.InstructionTreeData onRequestEntityInstructions(long entityId) {
         return null;
     }
 

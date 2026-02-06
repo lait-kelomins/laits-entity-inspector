@@ -184,6 +184,18 @@ public class OutgoingMessage {
         return new OutgoingMessage(MessageType.ASSETS_REFRESHED, null);
     }
 
+    /**
+     * Create ASSETS_REFRESHED message with optional patched asset path.
+     * Used after patch publish to indicate which asset was patched for auto-refresh.
+     */
+    public static OutgoingMessage assetsRefreshed(String patchedAssetPath) {
+        if (patchedAssetPath == null) {
+            return new OutgoingMessage(MessageType.ASSETS_REFRESHED, null);
+        }
+        return new OutgoingMessage(MessageType.ASSETS_REFRESHED,
+            java.util.Map.of("patchedAssetPath", patchedAssetPath));
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING MESSAGES
     // ═══════════════════════════════════════════════════════════════
@@ -245,6 +257,22 @@ public class OutgoingMessage {
                 .map(p -> new PatchInfoData(p.filename(), p.content(), p.modifiedTime()))
                 .toList();
         return new OutgoingMessage(MessageType.PATCHES_LIST, new PatchesListData(null, patchInfoList));
+    }
+
+    /**
+     * Create ALL_PATCHES_LIST message with patches from all mods.
+     */
+    public static OutgoingMessage allPatchesList(List<com.laits.inspector.core.PatchManager.ExternalPatchInfo> patches) {
+        var patchInfoList = patches.stream()
+                .map(p -> new ExternalPatchInfoData(
+                    p.filename(),
+                    p.content(),
+                    p.modifiedTime(),
+                    p.sourceMod(),
+                    p.isEditable()
+                ))
+                .toList();
+        return new OutgoingMessage(MessageType.ALL_PATCHES_LIST, new AllPatchesListData(patchInfoList));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -569,6 +597,36 @@ public class OutgoingMessage {
         }
     }
 
+    /**
+     * External patch info including source mod and editability.
+     */
+    private static class ExternalPatchInfoData {
+        private final String filename;
+        private final String content;
+        private final long modifiedTime;
+        private final String sourceMod;
+        private final boolean isEditable;
+
+        ExternalPatchInfoData(String filename, String content, long modifiedTime, String sourceMod, boolean isEditable) {
+            this.filename = filename;
+            this.content = content;
+            this.modifiedTime = modifiedTime;
+            this.sourceMod = sourceMod;
+            this.isEditable = isEditable;
+        }
+    }
+
+    /**
+     * Data for all patches list response (across all mods).
+     */
+    private static class AllPatchesListData {
+        private final List<ExternalPatchInfoData> patches;
+
+        AllPatchesListData(List<ExternalPatchInfoData> patches) {
+            this.patches = patches;
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // LIVE ENTITY QUERY MESSAGES
     // ═══════════════════════════════════════════════════════════════
@@ -691,6 +749,19 @@ public class OutgoingMessage {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION MESSAGES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Create ENTITY_INSTRUCTIONS message with serialized instruction tree.
+     */
+    public static OutgoingMessage entityInstructions(long entityId,
+            com.laits.inspector.data.InstructionData.InstructionTreeData tree) {
+        return new OutgoingMessage(MessageType.ENTITY_INSTRUCTIONS,
+            new EntityInstructionsData(entityId, tree));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // ENTITY ACTIONS MESSAGES
     // ═══════════════════════════════════════════════════════════════
 
@@ -741,6 +812,24 @@ public class OutgoingMessage {
             this.entityId = entityId;
             this.success = success;
             this.error = error;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION DATA CLASSES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Data for entity instructions response.
+     */
+    private static class EntityInstructionsData {
+        private final long entityId;
+        private final com.laits.inspector.data.InstructionData.InstructionTreeData instructions;
+
+        EntityInstructionsData(long entityId,
+                com.laits.inspector.data.InstructionData.InstructionTreeData instructions) {
+            this.entityId = entityId;
+            this.instructions = instructions;
         }
     }
 }

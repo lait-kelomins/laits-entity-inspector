@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.4';
+const GUI_VERSION = '0.1.5-alpha';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 // Storage key prefix for localStorage
@@ -29,7 +29,8 @@ const PERSISTED_SETTINGS = {
     'live-panel-visible': false,
     'live-filter-entity': '',
     'live-filter-id': '',
-    'live-filter-component': ''
+    'live-filter-component': '',
+    'inspector-subtab': 'components'
 };
 
 /**
@@ -503,12 +504,29 @@ class EntityInspector {
         this.lastUpdate = null;
         this.worldName = '---';
 
+        // Inspector fullscreen state
+        this.inspectorFullscreen = false;
+
+        // Inspector UI state preservation across re-renders
+        this.inspectorCollapsedSections = new Set();  // section keys user has collapsed
+        this.inspectorExpandedNodes = new Set();      // instruction node paths user has expanded
+        this.inspectorExpandedJsonPaths = new Set();   // JSON tree paths user has expanded
+        this.inspectorSubTabScroll = { components: 0, instructions: 0 };  // per-subtab scroll positions
+        this.eventLogScroll = 0;             // event log timeline scroll position
+        this.eventLogScrollAtBottom = true;  // whether user was scrolled to bottom (for sticky-bottom)
+        this.eventLogMaxHeight = parseInt(localStorage.getItem(STORAGE_PREFIX + 'event-log-height')) || 240;
+        this._lastInspectorHtml = '';                  // change detection cache
+
+        // Instruction node surnames: keyed as "roleName:nodePath" → surname string
+        this.instructionNodeSurnames = this.loadNodeSurnames();
+
         // Load persisted UI settings
         this.filter = this.loadSetting('filter');
         this.componentFilter = this.loadSetting('component-filter');
 
         // Tab state
         this.activeTab = this.loadSetting('active-tab');
+        this.inspectorSubTab = this.loadSetting('inspector-subtab');
 
         // Asset browser state
         this.hytalorEnabled = false;
@@ -526,6 +544,15 @@ class EntityInspector {
         // Sensor cache for Role assets (rolePath → { Sensors: {...} })
         this.sensorCache = new Map();
         this.pendingRoleFetches = new Set();
+
+        // Instruction cache (entityId → InstructionTreeData)
+        this.instructionCache = new Map();
+        this.pendingInstructionFetches = new Set();
+
+        // Instruction event history (client-side diffing)
+        this.instructionHistory = new Map();          // entityId → Event[]
+        this.previousInstructionSnapshot = new Map(); // entityId → InstructionTreeData
+        this.maxInstructionEvents = 50;
 
         // Alarms panel state
         this.alarmsFilter = this.loadSetting('alarms-filter');
@@ -627,6 +654,9 @@ class EntityInspector {
         this.packetFullscreenBtn = document.getElementById('packet-fullscreen-btn');
         this.entityListPanel = document.getElementById('entity-list-panel');
         this.inspectorPanel = document.getElementById('inspector-panel');
+        this.inspectorFullscreenBtn = document.getElementById('inspector-fullscreen-btn');
+        this.inspectorFontScaleInput = document.getElementById('inspector-font-scale');
+        this.inspectorFontScaleValue = document.getElementById('inspector-font-scale-value');
         this.resizeHandle = document.getElementById('resize-handle');
         this.mainEl = document.querySelector('.main');
         this.packetFilterInput = document.getElementById('packet-filter-input');
@@ -695,6 +725,7 @@ class EntityInspector {
         this.assetDetailEl = document.getElementById('asset-detail');
         this.assetFilterInput = document.getElementById('asset-filter');
         this.refreshAssetsBtn = document.getElementById('refresh-assets-btn');
+        this.refreshAssetBtn = document.getElementById('refresh-asset-btn');
         this.patchBtn = document.getElementById('patch-btn');
         this.historyList = document.getElementById('history-list');
 
@@ -712,6 +743,7 @@ class EntityInspector {
         this.wildcardMatchesRow = document.getElementById('wildcard-matches-row');
         this.wildcardMatches = document.getElementById('wildcard-matches');
         this.originalJson = document.getElementById('original-json');
+        this.refreshOriginalBtn = document.getElementById('refresh-original-btn');
         this.modifiedJson = document.getElementById('modified-json');
         this.directJson = document.getElementById('direct-json');
         this.patchPreview = document.getElementById('patch-preview');
@@ -748,6 +780,28 @@ class EntityInspector {
         this.connect();
         this.startUptimeTimer();
         this.startGlobalChangesCleanup();
+        this.startInstructionPoll();
+
+        // Persistent document-level handlers for event log resize drag
+        this._eventLogDrag = null;
+        document.addEventListener('mousemove', (e) => {
+            if (!this._eventLogDrag) return;
+            const { startY, startHeight, target } = this._eventLogDrag;
+            const delta = startY - e.clientY;
+            const newHeight = Math.max(60, startHeight + delta);
+            target.style.height = newHeight + 'px';
+        });
+        document.addEventListener('mouseup', () => {
+            if (!this._eventLogDrag) return;
+            const { target, handle } = this._eventLogDrag;
+            handle.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            this.eventLogMaxHeight = parseInt(target.style.height);
+            localStorage.setItem(STORAGE_PREFIX + 'event-log-height', this.eventLogMaxHeight);
+            this._lastInspectorHtml = '';
+            this._eventLogDrag = null;
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -778,6 +832,93 @@ class EntityInspector {
         localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
     }
 
+    // ── Instruction Node Surnames ──────────────────────────────────
+
+    loadNodeSurnames() {
+        try {
+            const raw = localStorage.getItem(STORAGE_PREFIX + 'node-surnames');
+            if (raw) return new Map(Object.entries(JSON.parse(raw)));
+        } catch { /* ignore */ }
+        return new Map();
+    }
+
+    saveNodeSurnames() {
+        const obj = Object.fromEntries(this.instructionNodeSurnames);
+        localStorage.setItem(STORAGE_PREFIX + 'node-surnames', JSON.stringify(obj));
+    }
+
+    /**
+     * Get the surname for a node, keyed by "roleName:nodePath".
+     * @returns {string|undefined}
+     */
+    getNodeSurname(roleName, nodePath) {
+        return this.instructionNodeSurnames.get(`${roleName}:${nodePath}`);
+    }
+
+    /**
+     * Set or clear a surname for a node.
+     */
+    setNodeSurname(roleName, nodePath, surname) {
+        const key = `${roleName}:${nodePath}`;
+        if (surname) {
+            this.instructionNodeSurnames.set(key, surname);
+        } else {
+            this.instructionNodeSurnames.delete(key);
+        }
+        this.saveNodeSurnames();
+    }
+
+    /**
+     * Resolve a diff context path like "Root[4][1][2]" to a surname if one exists.
+     * Falls back to the original context string.
+     */
+    resolveContextSurname(roleName, context) {
+        if (!roleName || !context) return context;
+
+        // Parse "Root[4][1]" → prefix "root", indices [4, 1] → nodePath "root.4.1"
+        const match = context.match(/^(Root|Interaction|Death)(.*)$/);
+        if (!match) return context;
+
+        const prefix = match[1].toLowerCase();
+        const rest = match[2];
+        const indices = [];
+        const re = /\[(\d+)\]/g;
+        let m;
+        while ((m = re.exec(rest)) !== null) {
+            indices.push(m[1]);
+        }
+
+        if (indices.length === 0) return context;
+
+        // Build nodePath and check for surname at each depth (deepest wins)
+        let resolved = context;
+        let path = prefix;
+        for (let i = 0; i < indices.length; i++) {
+            path += '.' + indices[i];
+            const surname = this.getNodeSurname(roleName, path);
+            if (surname) {
+                // Rebuild: surname + remaining indices
+                const remaining = indices.slice(i + 1).map(idx => `[${idx}]`).join('');
+                resolved = `${surname}${remaining}`;
+            }
+        }
+
+        return resolved;
+    }
+
+    /**
+     * Resolve all context references in an event label string.
+     * Context paths look like: Root[4] "name"[1][2] or Interaction[0][3]
+     * Replaces the deepest node path that has a surname.
+     */
+    resolveEventLabel(label, roleName) {
+        // Match full context paths including optional quoted names between brackets
+        // e.g. Root[0] "name"[1][2], Interaction[3], Death[0]
+        return label.replace(/(Root|Interaction|Death)((?:\[\d+\](?:\s*"[^"]*")?)+)/g, (match, prefix, rest) => {
+            return this.resolveContextSurname(roleName, match);
+        });
+    }
+
     /**
      * Clear all session-specific data (caches, selections, server state).
      * Called on disconnect to prevent stale data when reconnecting.
@@ -790,6 +931,10 @@ class EntityInspector {
         // Clear caches
         this.sensorCache.clear();
         this.pendingRoleFetches.clear();
+        this.instructionCache.clear();
+        this.pendingInstructionFetches.clear();
+        this.instructionHistory.clear();
+        this.previousInstructionSnapshot.clear();
         this.alarmHistory.clear();
         this.globalChanges = [];
         this.packetLog = [];
@@ -971,7 +1116,7 @@ class EntityInspector {
                     this.handleAssetExpandResponse(msg.data);
                     break;
                 case 'ASSETS_REFRESHED':
-                    this.handleAssetsRefreshed();
+                    this.handleAssetsRefreshed(msg.data);
                     break;
 
                 // Patch messages
@@ -995,6 +1140,14 @@ class EntityInspector {
                     break;
                 case 'PATCHES_LIST':
                     this.handlePatchesList(msg.data);
+                    break;
+                case 'ALL_PATCHES_LIST':
+                    this.handleAllPatchesList(msg.data);
+                    break;
+
+                // NPC instruction inspection
+                case 'ENTITY_INSTRUCTIONS':
+                    this.handleEntityInstructions(msg.data);
                     break;
 
                 // Entity actions
@@ -1070,6 +1223,12 @@ class EntityInspector {
         const entityId = data.entityId;
         const entity = this.entities.get(entityId);
         const name = entity ? (entity.modelAssetId || entity.entityType || 'Entity') : 'Entity';
+
+        // Clean up instruction cache and history for despawned entity
+        this.instructionCache.delete(entityId);
+        this.pendingInstructionFetches.delete(entityId);
+        this.instructionHistory.delete(entityId);
+        this.previousInstructionSnapshot.delete(entityId);
 
         this.log(`DESPAWN: ${name} #${entityId}`, 'despawn');
 
@@ -1308,6 +1467,45 @@ class EntityInspector {
         }
 
         this.log(`Packet log ${this.packetLogFullscreen ? 'fullscreen' : 'normal'}`, 'info');
+    }
+
+    toggleInspectorFullscreen() {
+        this.inspectorFullscreen = !this.inspectorFullscreen;
+
+        if (this.inspectorFullscreen) {
+            // Save inline width (set by panel resize) and clear it so CSS 100% applies
+            this._savedInspectorWidth = this.inspectorPanel.style.width;
+            this.inspectorPanel.style.width = '';
+        } else {
+            // Restore inline width
+            if (this._savedInspectorWidth) {
+                this.inspectorPanel.style.width = this._savedInspectorWidth;
+            }
+        }
+
+        // Toggle fullscreen class on inspector panel (position: fixed covers viewport)
+        this.inspectorPanel.classList.toggle('fullscreen', this.inspectorFullscreen);
+
+        // Hide siblings (entity list + resize handle) so they don't render behind
+        if (this.entityListPanel) {
+            this.entityListPanel.classList.toggle('hidden', this.inspectorFullscreen);
+        }
+        if (this.resizeHandle) {
+            this.resizeHandle.classList.toggle('hidden', this.inspectorFullscreen);
+        }
+
+        // Update button
+        if (this.inspectorFullscreenBtn) {
+            this.inspectorFullscreenBtn.textContent = this.inspectorFullscreen ? '⤡' : '⤢';
+            this.inspectorFullscreenBtn.title = this.inspectorFullscreen ? 'Exit Fullscreen' : 'Toggle Fullscreen';
+        }
+    }
+
+    applyInspectorFontScale(percent) {
+        const el = document.querySelector('.inspector-subtab-content[data-subtab="instructions"]');
+        if (el) el.style.zoom = percent + '%';
+        // Also store for re-application after re-render
+        this._inspectorFontScale = percent;
     }
 
     /**
@@ -2173,6 +2371,7 @@ class EntityInspector {
 
     renderInspector() {
         if (!this.selectedEntityId || !this.entities.has(this.selectedEntityId)) {
+            this._lastInspectorHtml = '';
             this.inspectorEl.innerHTML = `
                 <div class="empty-state">
                     <pre>
@@ -2188,7 +2387,20 @@ class EntityInspector {
 
         const entity = this.entities.get(this.selectedEntityId);
 
+        // Sub-tab bar
+        const isComponents = this.inspectorSubTab === 'components';
         let html = `
+            <div class="inspector-subtab-bar">
+                <button class="inspector-subtab-btn${isComponents ? ' active' : ''}" data-subtab="components">COMPONENTS</button>
+                <button class="inspector-subtab-btn${!isComponents ? ' active' : ''}" data-subtab="instructions">INSTRUCTIONS</button>
+            </div>
+        `;
+
+        // === COMPONENTS tab content ===
+        html += `<div class="inspector-subtab-content${isComponents ? ' active' : ''}" data-subtab="components">`;
+
+        // Entity header (only in Components tab)
+        html += `
             <div class="inspector-entity-header">
                 <h2>▓ ${escapeHtml(entity.modelAssetId || entity.entityType || 'Entity')}</h2>
                 <div class="inspector-meta">
@@ -2211,27 +2423,6 @@ class EntityInspector {
                 </div>
             </div>
         `;
-
-        // Render alarms section (if entity has alarms)
-        const alarms = this.extractAlarms(entity);
-        const timers = this.extractTimers(entity);
-        const runningTimer = timers.find(t => t.state === 'RUNNING');
-        html += this.renderAlarmsSection(alarms, runningTimer);
-
-        // Render timers section (if entity has active timers)
-        html += this.renderTimersSection(timers);
-
-        // Render sensors section (if we have cached role data)
-        const rolePath = this.extractRolePath(entity);
-        if (rolePath) {
-            const roleData = this.sensorCache.get(rolePath);
-            if (roleData?.Sensors) {
-                html += this.renderSensorsSection(roleData.Sensors);
-            } else if (!this.pendingRoleFetches.has(rolePath)) {
-                // Trigger async fetch for role data
-                this.fetchSensorsForRole(rolePath);
-            }
-        }
 
         // Render entity assets section (model, role references)
         const entityAssets = this.extractEntityAssets(entity);
@@ -2263,6 +2454,71 @@ class EntityInspector {
             `;
         }
 
+        html += '</div>'; // end COMPONENTS tab
+
+        // === INSTRUCTIONS tab content (flex column: scrollable body + pinned event log) ===
+        html += `<div class="inspector-subtab-content${!isComponents ? ' active' : ''}" data-subtab="instructions">`;
+
+        // Scrollable instructions body
+        html += '<div class="instructions-scroll-body">';
+
+        // Render alarms section (if entity has alarms)
+        const alarms = this.extractAlarms(entity);
+        const timers = this.extractTimers(entity);
+        const runningTimer = timers.find(t => t.state === 'RUNNING');
+        html += this.renderAlarmsSection(alarms, runningTimer);
+
+        // Render timers section (if entity has active timers)
+        html += this.renderTimersSection(timers);
+
+        // Render sensors section (if we have cached role data)
+        const rolePath = this.extractRolePath(entity);
+        if (rolePath) {
+            const roleData = this.sensorCache.get(rolePath);
+            if (roleData?.Sensors) {
+                html += this.renderSensorsSection(roleData.Sensors);
+            } else if (!this.pendingRoleFetches.has(rolePath)) {
+                // Trigger async fetch for role data
+                this.fetchSensorsForRole(rolePath);
+            }
+        }
+
+        // Render instructions section (NPC role instruction tree with live state)
+        if (entity.entityType === 'NPC' || entity.components?.NPCEntity) {
+            html += this.renderInstructionsSection(entity.entityId);
+        }
+
+        html += '</div>'; // end scrollable body
+
+        // Resize handle + pinned event log (outside scroll, always visible at bottom)
+        if (entity.entityType === 'NPC' || entity.components?.NPCEntity) {
+            html += '<div class="event-log-resize-handle" title="Drag to resize event log"></div>';
+            const cachedTree = this.instructionCache.get(entity.entityId);
+            html += this.renderInstructionEventLog(entity.entityId, cachedTree?.roleName || '');
+        }
+
+        html += '</div>'; // end INSTRUCTIONS tab
+
+        // Change detection: skip DOM update if HTML hasn't changed
+        if (html === this._lastInspectorHtml) return;
+        // Don't replace DOM while user is dragging the event log resize handle
+        if (this._eventLogDrag) return;
+        this._lastInspectorHtml = html;
+
+        // Save current sub-tab scroll ratio before DOM replacement (ratio is zoom-proof)
+        const scrollEl = this.getSubTabScrollElement();
+        if (scrollEl) {
+            const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+            this.inspectorSubTabScroll[this.inspectorSubTab] = maxScroll > 0 ? scrollEl.scrollTop / maxScroll : 0;
+        }
+
+        // Save event log scroll position (detect if user was at bottom for sticky-bottom)
+        const timelineEl = this.inspectorEl.querySelector('.instruction-timeline');
+        if (timelineEl) {
+            this.eventLogScroll = timelineEl.scrollTop;
+            this.eventLogScrollAtBottom = (timelineEl.scrollTop + timelineEl.clientHeight >= timelineEl.scrollHeight - 5);
+        }
+
         this.inspectorEl.innerHTML = html;
 
         // Add toggle handlers
@@ -2270,15 +2526,54 @@ class EntityInspector {
             header.addEventListener('click', () => {
                 const body = header.nextElementSibling;
                 const toggle = header.querySelector('.toggle');
+                const section = header.closest('.component-section');
+                const sectionKey = section?.dataset.sectionKey || '';
                 if (body.classList.contains('collapsed')) {
                     body.classList.remove('collapsed');
                     toggle.textContent = '[-]';
+                    this.inspectorCollapsedSections.delete(sectionKey);
                 } else {
                     body.classList.add('collapsed');
                     toggle.textContent = '[+]';
+                    this.inspectorCollapsedSections.add(sectionKey);
                 }
             });
         });
+
+        // Sub-tab click handlers (pure DOM toggle, no re-render)
+        this.inspectorEl.querySelectorAll('.inspector-subtab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tab = btn.dataset.subtab;
+                if (tab === this.inspectorSubTab) return;
+                // Save scroll ratio of the tab we're leaving
+                const leavingScrollEl = this.getSubTabScrollElement();
+                if (leavingScrollEl) {
+                    const maxScroll = leavingScrollEl.scrollHeight - leavingScrollEl.clientHeight;
+                    this.inspectorSubTabScroll[this.inspectorSubTab] = maxScroll > 0 ? leavingScrollEl.scrollTop / maxScroll : 0;
+                }
+                this.inspectorSubTab = tab;
+                this.saveSetting('inspector-subtab', tab);
+                // Toggle active class on buttons
+                this.inspectorEl.querySelectorAll('.inspector-subtab-btn').forEach(b => {
+                    b.classList.toggle('active', b.dataset.subtab === tab);
+                });
+                // Toggle active class on content divs
+                this.inspectorEl.querySelectorAll('.inspector-subtab-content').forEach(div => {
+                    div.classList.toggle('active', div.dataset.subtab === tab);
+                });
+                // Toggle filter visibility
+                this.inspectorPanel.classList.toggle('subtab-instructions', tab === 'instructions');
+                // Restore scroll ratio for the tab we're switching to
+                const enteringScrollEl = this.getSubTabScrollElement();
+                if (enteringScrollEl) {
+                    const maxScroll = enteringScrollEl.scrollHeight - enteringScrollEl.clientHeight;
+                    enteringScrollEl.scrollTop = this.inspectorSubTabScroll[tab] * maxScroll;
+                }
+            });
+        });
+
+        // Apply filter visibility based on current sub-tab
+        this.inspectorPanel.classList.toggle('subtab-instructions', this.inspectorSubTab === 'instructions');
 
         // Add expand handlers for lazy loading
         this.inspectorEl.querySelectorAll('.expandable').forEach(el => {
@@ -2330,15 +2625,40 @@ class EntityInspector {
                 const children = row.nextElementSibling;
                 const toggle = row.querySelector('.collapse-toggle');
                 const willCollapse = !row.classList.contains('collapsed');
+                const jsonPath = row.dataset.path || '';
 
                 if (e.altKey) {
                     // Alt+Click: expand/collapse all descendants
                     this.setCollapseStateRecursive(row, willCollapse);
+                    // Bulk update tracked JSON state for all descendants
+                    if (willCollapse) {
+                        // Collapsing all: remove this path and all children
+                        if (jsonPath) {
+                            for (const p of this.inspectorExpandedJsonPaths) {
+                                if (p === jsonPath || p.startsWith(jsonPath + '.')) {
+                                    this.inspectorExpandedJsonPaths.delete(p);
+                                }
+                            }
+                        }
+                    } else {
+                        // Expanding all: add all collapsible descendants
+                        if (jsonPath) this.inspectorExpandedJsonPaths.add(jsonPath);
+                        if (children) {
+                            children.querySelectorAll('.collapsible[data-path]').forEach(el => {
+                                if (el.dataset.path) this.inspectorExpandedJsonPaths.add(el.dataset.path);
+                            });
+                        }
+                    }
                 } else {
                     // Normal click: toggle just this item
                     row.classList.toggle('collapsed');
                     if (children) children.classList.toggle('collapsed');
                     toggle.textContent = willCollapse ? '▶' : '▼';
+                    // Track state
+                    if (jsonPath) {
+                        if (willCollapse) this.inspectorExpandedJsonPaths.delete(jsonPath);
+                        else this.inspectorExpandedJsonPaths.add(jsonPath);
+                    }
                 }
             });
         });
@@ -2361,8 +2681,205 @@ class EntityInspector {
             });
         });
 
+        // Add instruction refresh button handlers
+        this.inspectorEl.querySelectorAll('.instruction-refresh-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const eid = Number(btn.dataset.entityId);
+                if (eid) {
+                    this.instructionCache.delete(eid);
+                    this.pendingInstructionFetches.delete(eid);
+                    this.requestEntityInstructions(eid);
+                }
+            });
+        });
+
+        // Event log: clear button
+        this.inspectorEl.querySelectorAll('.instruction-event-clear-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const eid = Number(btn.dataset.entityId);
+                if (eid) {
+                    this.instructionHistory.delete(eid);
+                    this.renderInspector();
+                }
+            });
+        });
+
+        // Event log: restore scroll (sticky-bottom if user was at bottom, otherwise preserve position)
+        this.inspectorEl.querySelectorAll('.instruction-timeline').forEach(list => {
+            if (this.eventLogScrollAtBottom) {
+                list.scrollTop = list.scrollHeight;
+            } else {
+                list.scrollTop = this.eventLogScroll;
+            }
+        });
+
+        // Event log resize handle (mousedown only — move/up use persistent handlers)
+        this.inspectorEl.querySelectorAll('.event-log-resize-handle').forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                const eventLog = handle.nextElementSibling;
+                if (!eventLog) return;
+                this._eventLogDrag = { startY: e.clientY, startHeight: eventLog.offsetHeight, target: eventLog, handle };
+                handle.classList.add('dragging');
+                document.body.style.cursor = 'row-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+        });
+
+        // Instruction node collapse toggles (click on header text, not the arrow)
+        // Alt+Click: expand/collapse all descendant nodes under the clicked node
+        this.inspectorEl.querySelectorAll('.instruction-node-header .node-header-text').forEach(text => {
+            text.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (e.altKey) {
+                    // Alt+Click: toggle all descendants under this node
+                    const node = text.closest('.instruction-node');
+                    if (!node) return;
+                    const descendantBodies = node.querySelectorAll('.instruction-node-body');
+                    const anyExpanded = Array.from(descendantBodies).some(b => !b.classList.contains('collapsed'));
+                    descendantBodies.forEach(b => b.classList.toggle('collapsed', anyExpanded));
+                    node.querySelectorAll('.node-toggle').forEach(t => {
+                        t.textContent = anyExpanded ? '▶' : '▼';
+                    });
+                    // Bulk update tracked state for this node + descendants
+                    const nodePath = node.dataset.nodePath || '';
+                    if (anyExpanded) {
+                        for (const p of this.inspectorExpandedNodes) {
+                            if (p === nodePath || p.startsWith(nodePath + '/')) {
+                                this.inspectorExpandedNodes.delete(p);
+                            }
+                        }
+                    } else {
+                        // Add the clicked node itself
+                        if (nodePath && node.querySelector(':scope > .instruction-node-body')) {
+                            this.inspectorExpandedNodes.add(nodePath);
+                        }
+                        // Add all descendant nodes
+                        node.querySelectorAll('.instruction-node[data-node-path]').forEach(el => {
+                            if (el.querySelector(':scope > .instruction-node-body')) {
+                                this.inspectorExpandedNodes.add(el.dataset.nodePath);
+                            }
+                        });
+                    }
+                } else {
+                    const node = text.closest('.instruction-node');
+                    const body = node.querySelector(':scope > .instruction-node-body');
+                    if (!body) return;
+                    const toggle = node.querySelector(':scope > .instruction-node-header .node-toggle');
+                    const isCollapsed = body.classList.toggle('collapsed');
+                    if (toggle) toggle.textContent = isCollapsed ? '▶' : '▼';
+                    // Track state
+                    const path = node.dataset.nodePath;
+                    if (path) {
+                        if (isCollapsed) this.inspectorExpandedNodes.delete(path);
+                        else this.inspectorExpandedNodes.add(path);
+                    }
+                }
+            });
+        });
+
+        // Set/clear surname: right-click on header or click pencil button
+        this.inspectorEl.querySelectorAll('.instruction-node[data-node-path]').forEach(node => {
+            const header = node.querySelector(':scope > .instruction-node-header');
+            if (!header) return;
+
+            const promptSurname = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const nodePath = node.dataset.nodePath;
+                const section = node.closest('.instruction-section[data-role-name]');
+                const role = section?.dataset.roleName;
+                if (!role || !nodePath) return;
+
+                const current = this.getNodeSurname(role, nodePath) || '';
+                const input = prompt(`Surname for [${nodePath}] (empty to clear):`, current);
+                if (input === null) return;
+                this.setNodeSurname(role, nodePath, input.trim());
+                this._lastInspectorHtml = '';
+                this.renderInspector();
+            };
+
+            header.addEventListener('contextmenu', promptSurname);
+
+            const pencilBtn = header.querySelector('.node-surname-btn');
+            if (pencilBtn) pencilBtn.addEventListener('click', promptSurname);
+        });
+
         // Update expandable button states based on pause state
         this.updateExpandableStates();
+
+        // Restore expand/collapse state from tracked Sets
+        // (must happen BEFORE scroll restore — collapsing/expanding nodes changes content height)
+        this.restoreInspectorState();
+
+        // Re-apply font scale BEFORE scroll restore (zoom changes content heights)
+        if (this._inspectorFontScale && this._inspectorFontScale != 100) {
+            this.applyInspectorFontScale(this._inspectorFontScale);
+        }
+
+        // Restore scroll position from ratio (after state + zoom so heights are final)
+        const newScrollEl = this.getSubTabScrollElement();
+        if (newScrollEl) {
+            const maxScroll = newScrollEl.scrollHeight - newScrollEl.clientHeight;
+            newScrollEl.scrollTop = this.inspectorSubTabScroll[this.inspectorSubTab] * maxScroll;
+        }
+    }
+
+    /**
+     * Get the scrollable element for the currently active sub-tab.
+     * Components tab: the subtab-content div itself scrolls.
+     * Instructions tab: the .instructions-scroll-body scrolls.
+     */
+    getSubTabScrollElement() {
+        const active = this.inspectorEl.querySelector('.inspector-subtab-content.active');
+        if (!active) return null;
+        if (this.inspectorSubTab === 'instructions') {
+            return active.querySelector('.instructions-scroll-body') || active;
+        }
+        return active;
+    }
+
+    /**
+     * Restore expand/collapse state after a re-render.
+     * Sections default expanded, so we collapse the ones the user collapsed.
+     * Instruction nodes and JSON trees default collapsed, so we expand the ones the user expanded.
+     */
+    restoreInspectorState() {
+        // Restore collapsed component sections
+        this.inspectorEl.querySelectorAll('.component-section[data-section-key]').forEach(section => {
+            const key = section.dataset.sectionKey;
+            if (this.inspectorCollapsedSections.has(key)) {
+                const body = section.querySelector('.component-body');
+                const toggle = section.querySelector('.component-header .toggle');
+                if (body) body.classList.add('collapsed');
+                if (toggle) toggle.textContent = '[+]';
+            }
+        });
+
+        // Restore expanded instruction nodes
+        this.inspectorEl.querySelectorAll('.instruction-node[data-node-path]').forEach(node => {
+            const path = node.dataset.nodePath;
+            if (this.inspectorExpandedNodes.has(path)) {
+                const body = node.querySelector(':scope > .instruction-node-body');
+                const toggle = node.querySelector(':scope > .instruction-node-header .node-toggle');
+                if (body) body.classList.remove('collapsed');
+                if (toggle) toggle.textContent = '▼';
+            }
+        });
+
+        // Restore expanded JSON tree nodes
+        this.inspectorEl.querySelectorAll('.collapsible[data-path]').forEach(row => {
+            const path = row.dataset.path;
+            if (this.inspectorExpandedJsonPaths.has(path)) {
+                const children = row.nextElementSibling;
+                const toggle = row.querySelector('.collapse-toggle');
+                row.classList.remove('collapsed');
+                if (children) children.classList.remove('collapsed');
+                if (toggle) toggle.textContent = '▼';
+            }
+        });
     }
 
     /**
@@ -2413,7 +2930,7 @@ class EntityInspector {
         }
 
         return `
-            <div class="component-section">
+            <div class="component-section" data-section-key="${escapeHtml(name)}">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span>${escapeHtml(name)}</span>
@@ -3012,7 +3529,7 @@ class EntityInspector {
         }
 
         return `
-            <div class="alarm-section component-section">
+            <div class="alarm-section component-section" data-section-key="ALARMS">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span class="component-name">⏰ ALARMS</span>
@@ -3031,7 +3548,7 @@ class EntityInspector {
         if (!timers || timers.length === 0) return '';
 
         let html = `
-            <div class="timer-section component-section">
+            <div class="timer-section component-section" data-section-key="TIMERS">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span class="component-name">⏱️ TIMERS</span>
@@ -3078,7 +3595,7 @@ class EntityInspector {
         if (!sensors || Object.keys(sensors).length === 0) return '';
 
         let html = `
-            <div class="sensor-section component-section">
+            <div class="sensor-section component-section" data-section-key="SENSORS">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span class="component-name">📡 SENSORS</span>
@@ -3103,6 +3620,662 @@ class EntityInspector {
         return html;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── Instruction Event History (client-side diffing) ──────────
+
+    /**
+     * Diff two instruction tree snapshots and return change events.
+     */
+    diffInstructionTrees(oldTree, newTree) {
+        const events = [];
+
+        // State machine transitions
+        if (oldTree.stateMachine && newTree.stateMachine) {
+            const os = oldTree.stateMachine;
+            const ns = newTree.stateMachine;
+            if (os.state !== ns.state || os.subState !== ns.subState) {
+                const oldLabel = os.stateName ? `${os.state}.${os.subState} (${os.stateName})` : `${os.state}.${os.subState}`;
+                const newLabel = ns.stateName ? `${ns.state}.${ns.subState} (${ns.stateName})` : `${ns.state}.${ns.subState}`;
+                events.push({
+                    timestamp: Date.now(),
+                    type: 'state',
+                    label: `State: ${oldLabel} → ${newLabel}`,
+                    oldValue: oldLabel,
+                    newValue: newLabel
+                });
+            }
+        }
+
+        // Diff instruction groups
+        events.push(...this.diffInstructionGroup('Root', oldTree.rootInstructions, newTree.rootInstructions));
+        events.push(...this.diffInstructionGroup('Interaction', oldTree.interactionInstructions, newTree.interactionInstructions));
+        events.push(...this.diffInstructionGroup('Death', oldTree.deathInstructions, newTree.deathInstructions));
+
+        return events;
+    }
+
+    /**
+     * Diff two instruction node arrays (matched by index).
+     */
+    diffInstructionGroup(groupName, oldNodes, newNodes) {
+        const events = [];
+        if (!oldNodes || !newNodes) return events;
+
+        const len = Math.min(oldNodes.length, newNodes.length);
+        for (let i = 0; i < len; i++) {
+            const oldNode = oldNodes[i];
+            const newNode = newNodes[i];
+            const ctx = oldNode.name ? `${groupName}[${i}] "${oldNode.name}"` : `${groupName}[${i}]`;
+
+            // Diff sensor
+            if (oldNode.sensor && newNode.sensor) {
+                events.push(...this.diffSensor(oldNode.sensor, newNode.sensor, ctx));
+            }
+
+            // Diff actions
+            if (oldNode.actions && newNode.actions) {
+                events.push(...this.diffActions(oldNode.actions, newNode.actions, ctx));
+            }
+
+            // Recurse into children
+            if (oldNode.children && newNode.children) {
+                events.push(...this.diffInstructionGroup(ctx, oldNode.children, newNode.children));
+            }
+        }
+
+        return events;
+    }
+
+    /**
+     * Diff two sensor nodes (recursive for compound sensors).
+     */
+    diffSensor(oldSensor, newSensor, context) {
+        const events = [];
+        const now = Date.now();
+        const sensorLabel = oldSensor.type || 'Sensor';
+
+        // Alarm state transitions
+        if (oldSensor.alarmActual !== undefined && newSensor.alarmActual !== undefined) {
+            if (oldSensor.alarmActual !== newSensor.alarmActual) {
+                const name = oldSensor.alarmName || 'unknown';
+                events.push({
+                    timestamp: now,
+                    type: 'alarm',
+                    label: `Alarm "${name}" ${oldSensor.alarmActual} → ${newSensor.alarmActual}`,
+                    oldValue: oldSensor.alarmActual,
+                    newValue: newSensor.alarmActual
+                });
+            }
+        }
+
+        // Timer state transitions (NOT value)
+        if (oldSensor.timerActualState !== undefined && newSensor.timerActualState !== undefined) {
+            if (oldSensor.timerActualState !== newSensor.timerActualState) {
+                events.push({
+                    timestamp: now,
+                    type: 'timer',
+                    label: `Timer ${context}: ${oldSensor.timerActualState} → ${newSensor.timerActualState}`,
+                    oldValue: oldSensor.timerActualState,
+                    newValue: newSensor.timerActualState
+                });
+            }
+        }
+
+        // Triggered flag flip
+        if (oldSensor.triggered !== newSensor.triggered) {
+            const verb = newSensor.triggered ? 'TRIGGERED' : 'cleared';
+            events.push({
+                timestamp: now,
+                type: 'sensor',
+                label: `Sensor ${sensorLabel} ${context} ${verb}`,
+                oldValue: oldSensor.triggered,
+                newValue: newSensor.triggered
+            });
+        }
+
+        // Diff generic properties
+        if (oldSensor.properties || newSensor.properties) {
+            events.push(...this.diffProperties(
+                oldSensor.properties || {}, newSensor.properties || {}, context, 'Sensor'));
+        }
+
+        // Recurse into compound sensor children
+        if (oldSensor.children && newSensor.children) {
+            const len = Math.min(oldSensor.children.length, newSensor.children.length);
+            for (let i = 0; i < len; i++) {
+                events.push(...this.diffSensor(oldSensor.children[i], newSensor.children[i], context));
+            }
+        }
+
+        return events;
+    }
+
+    /**
+     * Diff two action arrays (matched by index).
+     */
+    diffActions(oldActions, newActions, context) {
+        const events = [];
+        const now = Date.now();
+        const len = Math.min(oldActions.length, newActions.length);
+
+        for (let i = 0; i < len; i++) {
+            const oa = oldActions[i];
+            const na = newActions[i];
+            const actionLabel = na.type || `Action[${i}]`;
+
+            if (oa.triggered !== na.triggered) {
+                const verb = na.triggered ? 'TRIGGERED' : 'cleared';
+                events.push({
+                    timestamp: now,
+                    type: 'action',
+                    label: `Action "${actionLabel}" ${verb}`,
+                    oldValue: oa.triggered,
+                    newValue: na.triggered
+                });
+            }
+
+            if (oa.active !== na.active) {
+                const verb = na.active ? 'ACTIVE' : 'inactive';
+                events.push({
+                    timestamp: now,
+                    type: 'action',
+                    label: `Action "${actionLabel}" ${verb}`,
+                    oldValue: oa.active,
+                    newValue: na.active
+                });
+            }
+
+            // Diff generic properties
+            if (oa.properties || na.properties) {
+                events.push(...this.diffProperties(
+                    oa.properties || {}, na.properties || {}, `${context} "${actionLabel}"`, 'Action'));
+            }
+        }
+
+        return events;
+    }
+
+    /**
+     * Compare two property maps and return events for changed/removed values.
+     */
+    diffProperties(oldProps, newProps, context, parentType) {
+        const events = [];
+        const now = Date.now();
+        const allKeys = new Set([...Object.keys(oldProps), ...Object.keys(newProps)]);
+
+        for (const key of allKeys) {
+            const oldVal = oldProps[key];
+            const newVal = newProps[key];
+
+            if (!this.arePropertiesEqual(oldVal, newVal)) {
+                const oldStr = this.formatPropertyValue(oldVal);
+                const newStr = this.formatPropertyValue(newVal);
+                events.push({
+                    timestamp: now,
+                    type: parentType === 'Action' ? 'action' : 'sensor',
+                    label: `${parentType} ${context}: ${key} ${oldStr} \u2192 ${newStr}`,
+                    oldValue: oldStr,
+                    newValue: newStr
+                });
+            }
+        }
+        return events;
+    }
+
+    /**
+     * Deep equality for property values (primitives and arrays).
+     */
+    arePropertiesEqual(a, b) {
+        if (a === b) return true;
+        if (a === undefined && b === undefined) return true;
+        if (a === null && b === null) return true;
+        if (a === undefined || a === null || b === undefined || b === null) return false;
+        if (Array.isArray(a) && Array.isArray(b)) {
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Format a property value for display in event labels.
+     */
+    formatPropertyValue(value) {
+        if (value === undefined || value === null) return '(none)';
+        if (typeof value === 'boolean') return value ? '\u2713' : '\u2717';
+        if (Array.isArray(value)) return '[' + value.join(', ') + ']';
+        return String(value);
+    }
+
+    /**
+     * Append events to the ring buffer for an entity, trimming to max.
+     */
+    appendInstructionEvents(entityId, events) {
+        let history = this.instructionHistory.get(entityId);
+        if (!history) {
+            history = [];
+            this.instructionHistory.set(entityId, history);
+        }
+        history.push(...events);
+        // Trim to max
+        if (history.length > this.maxInstructionEvents) {
+            history.splice(0, history.length - this.maxInstructionEvents);
+        }
+    }
+
+    // ── End Instruction Event History ────────────────────────────
+
+    handleEntityInstructions(data) {
+        if (!data || !data.entityId) return;
+
+        this.pendingInstructionFetches.delete(data.entityId);
+
+        if (data.instructions) {
+            // Diff against previous snapshot before updating cache
+            const old = this.previousInstructionSnapshot.get(data.entityId);
+            if (old) {
+                const events = this.diffInstructionTrees(old, data.instructions);
+                if (events.length > 0) {
+                    this.appendInstructionEvents(data.entityId, events);
+                }
+            }
+            // Store snapshot for next diff (deep copy via structured clone)
+            this.previousInstructionSnapshot.set(data.entityId, JSON.parse(JSON.stringify(data.instructions)));
+            this.instructionCache.set(data.entityId, data.instructions);
+        }
+
+        // Re-render inspector if this entity is selected
+        if (this.selectedEntityId === data.entityId && !this.inspectorPaused) {
+            this.renderInspector();
+        }
+    }
+
+    requestEntityInstructions(entityId) {
+        if (this.pendingInstructionFetches.has(entityId)) return;
+        this.pendingInstructionFetches.add(entityId);
+        this.send('REQUEST_ENTITY_INSTRUCTIONS', { entityId });
+    }
+
+    /**
+     * Render the instruction tree section for the inspector panel.
+     */
+    renderInstructionsSection(entityId) {
+        const tree = this.instructionCache.get(entityId);
+        if (!tree) {
+            // Trigger fetch if not cached
+            if (!this.pendingInstructionFetches.has(entityId)) {
+                this.requestEntityInstructions(entityId);
+            }
+            return '';
+        }
+
+        const roleName = tree.roleName || '';
+
+        let html = `
+            <div class="instruction-section component-section" data-section-key="INSTRUCTIONS" data-role-name="${escapeHtml(roleName)}">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">🧠 INSTRUCTIONS</span>
+                    <span class="instruction-role-name">${escapeHtml(roleName)}</span>
+                    <button class="instruction-refresh-btn" data-entity-id="${entityId}" title="Refresh Instructions">↻</button>
+                </div>
+                <div class="component-body">
+        `;
+
+        // State machine
+        if (tree.stateMachine) {
+            const sm = tree.stateMachine;
+            const nameStr = sm.stateName ? ` (${escapeHtml(sm.stateName)})` : '';
+            html += `
+                <div class="instruction-state-machine">
+                    <span class="instruction-label">State:</span>
+                    <span class="instruction-value">${sm.state}${nameStr}</span>
+                    <span class="instruction-label">Sub:</span>
+                    <span class="instruction-value">${sm.subState}</span>
+                </div>
+            `;
+        }
+
+        // Parameters (collapsible)
+        if (tree.parameters && Object.keys(tree.parameters).length > 0) {
+            html += `
+                <div class="instruction-params">
+                    <div class="instruction-params-header collapsible collapsed" data-path="instruction-parameters">
+                        <span class="collapse-toggle">▶</span>
+                        <span class="instruction-label">Parameters (${Object.keys(tree.parameters).length})</span>
+                    </div>
+                    <div class="instruction-params-body collapsed">
+            `;
+            for (const [key, value] of Object.entries(tree.parameters)) {
+                html += `
+                    <div class="instruction-param-row">
+                        <span class="param-key">${escapeHtml(key)}</span>
+                        <span class="param-value">${escapeHtml(JSON.stringify(value))}</span>
+                    </div>
+                `;
+            }
+            html += '</div></div>';
+        }
+
+        // Root instructions
+        if (tree.rootInstructions && tree.rootInstructions.length > 0) {
+            html += `<div class="instruction-group">
+                <div class="instruction-group-header">Root Instructions (${tree.rootInstructions.length})</div>`;
+            html += this.renderInstructionNodes(tree.rootInstructions, 0, 'root', roleName);
+            html += '</div>';
+        }
+
+        // Interaction instructions
+        if (tree.interactionInstructions && tree.interactionInstructions.length > 0) {
+            html += `<div class="instruction-group">
+                <div class="instruction-group-header">Interaction Instructions (${tree.interactionInstructions.length})</div>`;
+            html += this.renderInstructionNodes(tree.interactionInstructions, 0, 'interaction', roleName);
+            html += '</div>';
+        }
+
+        // Death instructions
+        if (tree.deathInstructions && tree.deathInstructions.length > 0) {
+            html += `<div class="instruction-group">
+                <div class="instruction-group-header">Death Instructions (${tree.deathInstructions.length})</div>`;
+            html += this.renderInstructionNodes(tree.deathInstructions, 0, 'death', roleName);
+            html += '</div>';
+        }
+
+        html += '</div></div>';
+        return html;
+    }
+
+    /**
+     * Render the instruction event history log as a vertical timeline.
+     */
+    renderInstructionEventLog(entityId, roleName = '') {
+        const history = this.instructionHistory.get(entityId) || [];
+        const count = history.length;
+
+        let html = `
+            <div class="instruction-event-log component-section" data-section-key="EVENT LOG" style="height:${this.eventLogMaxHeight || 240}px">
+                <div class="component-header">
+                    <span class="toggle">[-]</span>
+                    <span class="component-name">EVENT LOG (${count})</span>
+                    ${count > 0 ? `<button class="instruction-event-clear-btn" data-entity-id="${entityId}" title="Clear event log">✕</button>` : ''}
+                </div>
+                <div class="component-body">
+                    <div class="instruction-timeline" data-entity-id="${entityId}">
+        `;
+
+        if (count === 0) {
+            html += '<div class="instruction-event-empty">No events yet. Changes will appear as the inspector polls.</div>';
+        } else {
+            for (const event of history) {
+                const time = new Date(event.timestamp);
+                const timeStr = time.toLocaleTimeString('en-GB', { hour12: false });
+                // Resolve surnames in event labels
+                const label = roleName ? this.resolveEventLabel(event.label, roleName) : event.label;
+                html += `
+                    <div class="instruction-event event-type-${escapeHtml(event.type)}">
+                        <span class="event-time">${timeStr}</span>
+                        <span class="event-label">${escapeHtml(label)}</span>
+                    </div>
+                `;
+            }
+        }
+
+        html += '</div></div></div>';
+        return html;
+    }
+
+    /**
+     * Build a compact one-line summary of a sensor for the node header.
+     * e.g. "And(Alarm "Growth_Ready", Timer)" or "Alarm "Harvest_Ready""
+     */
+    getSensorSummary(sensor) {
+        if (!sensor) return '';
+        const type = escapeHtml(sensor.type || '?');
+
+        // Build params string for leaf sensors
+        const params = [];
+        if (sensor.alarmName) {
+            params.push(`"${escapeHtml(sensor.alarmName)}" expect:${escapeHtml(sensor.alarmExpected || '?')}`);
+        }
+        if (sensor.timerExpectedState) {
+            params.push(`expect:${escapeHtml(sensor.timerExpectedState)}`);
+        }
+        const paramStr = params.length > 0 ? ' ' + params.join(' ') : '';
+
+        // Build properties string for non-alarm/non-timer sensors
+        let propsStr = '';
+        if (sensor.properties && Object.keys(sensor.properties).length > 0) {
+            propsStr = Object.entries(sensor.properties)
+                .filter(([k, v]) => v !== false && v !== 0 && v !== null)
+                .map(([k, v]) => {
+                    if (typeof v === 'boolean') return v ? k : null;
+                    if (typeof v === 'number') return `${k}:${v}`;
+                    if (typeof v === 'string') return `${k}:${v}`;
+                    if (Array.isArray(v)) return `${k}:[${v.join(',')}]`;
+                    return null;
+                })
+                .filter(Boolean)
+                .join(', ');
+        }
+
+        // Compound sensors: recurse into children
+        if (sensor.children && sensor.children.length > 0) {
+            const inner = sensor.children.map(c => this.getSensorSummary(c)).join(', ');
+            const extra = propsStr ? ` (${propsStr})` : '';
+            return `${type}(${inner})${extra}`;
+        }
+
+        // Leaf sensor: combine params and properties
+        const allParts = [paramStr.trim(), propsStr ? `(${propsStr})` : ''].filter(Boolean).join(' ');
+        return `${type}${allParts ? ' ' + allParts : ''}`;
+    }
+
+    /**
+     * Render a list of instruction nodes recursively.
+     */
+    renderInstructionNodes(nodes, depth, pathPrefix = '', roleName = '') {
+        if (!nodes || nodes.length === 0) return '';
+
+        let html = '';
+        for (const node of nodes) {
+            const nodePath = pathPrefix ? `${pathPrefix}.${node.index}` : `${node.index}`;
+            const surname = roleName ? this.getNodeSurname(roleName, nodePath) : undefined;
+            const surnameStr = surname ? ` <span class="node-surname">${escapeHtml(surname)}</span>` : '';
+            const nameStr = node.name ? ` "${escapeHtml(node.name)}"` : '';
+            const tagStr = node.tag ? ` <span class="instruction-tag">[${escapeHtml(node.tag)}]</span>` : '';
+            const contStr = node.continueAfter ? ' <span class="instruction-continue">→ continue</span>' : '';
+            const sensorStr = node.sensor ? ` <span class="instruction-sensor-summary">${this.getSensorSummary(node.sensor)}</span>` : '';
+            const hasContent = node.sensor || (node.actions && node.actions.length > 0) || (node.children && node.children.length > 0);
+
+            html += `<div class="instruction-node" data-node-path="${escapeHtml(nodePath)}" style="padding-left: ${depth * 16}px">`;
+            html += `<div class="instruction-node-header">`;
+            if (hasContent) {
+                html += `<span class="node-toggle">▶</span>`;
+            }
+            html += `<span class="node-header-text${hasContent ? ' collapsible-text' : ''}"><span class="instruction-index">[${node.index}]</span>${surnameStr}${nameStr}${tagStr}${contStr}${sensorStr}</span>`;
+            html += `<button class="node-surname-btn" title="Set surname for this node">&#9998; Rename (right-click)</button>`;
+            html += `</div>`;
+
+            if (hasContent) {
+                html += `<div class="instruction-node-body collapsed">`;
+
+                // Sensor
+                if (node.sensor) {
+                    html += this.renderSensorNode(node.sensor, depth + 1);
+                }
+
+                // Actions
+                if (node.actions && node.actions.length > 0) {
+                    html += `<div class="instruction-actions" style="padding-left: ${(depth + 1) * 16}px">`;
+                    html += '<span class="instruction-label">Actions:</span> ';
+                    html += node.actions.map(a => {
+                        const flags = [];
+                        if (a.once) flags.push('once');
+                        if (a.triggered) flags.push('TRIGGERED');
+                        if (a.active) flags.push('ACTIVE');
+                        const flagClass = a.active ? 'action-active' : a.triggered ? 'action-triggered' : '';
+                        const flagStr = flags.length > 0 ? ` <span class="action-flags">[${flags.join(', ')}]</span>` : '';
+                        let propStr = '';
+                        if (a.properties && Object.keys(a.properties).length > 0) {
+                            propStr = ' <span class="action-properties">';
+                            for (const [key, value] of Object.entries(a.properties)) {
+                                let displayValue;
+                                if (typeof value === 'boolean') displayValue = value ? '\u2713' : '\u2717';
+                                else if (Array.isArray(value)) displayValue = '[' + value.join(', ') + ']';
+                                else displayValue = escapeHtml(String(value));
+                                propStr += `<span class="action-prop">${escapeHtml(key)}=${displayValue}</span> `;
+                            }
+                            propStr += '</span>';
+                        }
+                        return `<span class="action-badge ${flagClass}">${escapeHtml(a.type)}${flagStr}${propStr}</span>`;
+                    }).join(' ');
+                    html += '</div>';
+                }
+
+                // Children (sub-instructions)
+                if (node.children && node.children.length > 0) {
+                    html += this.renderInstructionNodes(node.children, depth + 1, nodePath, roleName);
+                }
+
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
+        return html;
+    }
+
+    /**
+     * Render a sensor node (recursive for compound sensors).
+     */
+    renderSensorNode(sensor, depth) {
+        if (!sensor) return '';
+
+        let html = `<div class="sensor-node" style="padding-left: ${depth * 16}px">`;
+        html += `<span class="sensor-type">${escapeHtml(sensor.type)}</span>`;
+
+        // Alarm-specific info
+        if (sensor.alarmName) {
+            const actualClass = (sensor.alarmActual || '').toLowerCase();
+            html += ` <span class="sensor-alarm-name">"${escapeHtml(sensor.alarmName)}"</span>`;
+            html += ` <span class="sensor-alarm-expect">(expect: ${escapeHtml(sensor.alarmExpected || '?')}</span>`;
+            html += ` <span class="sensor-alarm-actual alarm-state-${actualClass}">actual: ${escapeHtml(sensor.alarmActual || '?')}</span>`;
+            if (sensor.alarmClear) html += ` <span class="sensor-alarm-clear">clear</span>`;
+            html += '<span class="sensor-alarm-expect">)</span>';
+        }
+
+        // Timer-specific info
+        if (sensor.timerExpectedState || sensor.timerActualState) {
+            const actualClass = (sensor.timerActualState || '').toLowerCase();
+            html += ` <span class="sensor-timer-info">(`;
+            html += `expect: ${escapeHtml(sensor.timerExpectedState || '?')}`;
+            html += ` <span class="timer-state-${actualClass}">actual: ${escapeHtml(sensor.timerActualState || '?')}</span>`;
+            if (sensor.timerValue !== undefined && sensor.timerValue !== null) {
+                html += ` val: ${sensor.timerValue.toFixed(1)}`;
+                if (sensor.timerMaxValue !== undefined && sensor.timerMaxValue !== null) {
+                    html += `/${sensor.timerMaxValue.toFixed(1)}`;
+                }
+            }
+            html += `)</span>`;
+        }
+
+        // Runtime flags
+        const flags = [];
+        if (sensor.once) flags.push('once');
+        if (sensor.triggered) flags.push('TRIGGERED');
+        if (flags.length > 0) {
+            const flagClass = sensor.triggered ? 'sensor-triggered' : '';
+            html += ` <span class="sensor-flags ${flagClass}">[${flags.join(', ')}]</span>`;
+        }
+
+        // Generic properties
+        if (sensor.properties && Object.keys(sensor.properties).length > 0) {
+            html += ` <span class="sensor-properties">`;
+            for (const [key, value] of Object.entries(sensor.properties)) {
+                let displayValue;
+                if (typeof value === 'boolean') displayValue = value ? '\u2713' : '\u2717';
+                else if (Array.isArray(value)) displayValue = '[' + value.join(', ') + ']';
+                else displayValue = escapeHtml(String(value));
+                html += `<span class="sensor-prop">${escapeHtml(key)}=${displayValue}</span> `;
+            }
+            html += `</span>`;
+        }
+
+        html += '</div>';
+
+        // Compound sensor children
+        if (sensor.children && sensor.children.length > 0) {
+            for (let i = 0; i < sensor.children.length; i++) {
+                const child = sensor.children[i];
+                const isLast = i === sensor.children.length - 1;
+                const prefix = isLast ? '└─' : '├─';
+                html += `<div class="sensor-child" style="padding-left: ${(depth + 1) * 16}px">`;
+                html += `<span class="sensor-tree-line">${prefix}</span> `;
+                // Inline render the child sensor (without extra wrapper div)
+                html += `<span class="sensor-type">${escapeHtml(child.type)}</span>`;
+
+                // Alarm info for child
+                if (child.alarmName) {
+                    const actualClass = (child.alarmActual || '').toLowerCase();
+                    html += ` <span class="sensor-alarm-name">"${escapeHtml(child.alarmName)}"</span>`;
+                    html += ` <span class="sensor-alarm-actual alarm-state-${actualClass}">${escapeHtml(child.alarmActual || '?')}</span>`;
+                    if (child.alarmClear) html += ` <span class="sensor-alarm-clear">clear</span>`;
+                }
+
+                // Timer info for child
+                if (child.timerExpectedState || child.timerActualState) {
+                    const actualClass = (child.timerActualState || '').toLowerCase();
+                    html += ` <span class="timer-state-${actualClass}">${escapeHtml(child.timerActualState || '?')}</span>`;
+                    if (child.timerValue !== undefined && child.timerValue !== null) {
+                        html += ` ${child.timerValue.toFixed(1)}`;
+                        if (child.timerMaxValue !== undefined && child.timerMaxValue !== null) {
+                            html += `/${child.timerMaxValue.toFixed(1)}`;
+                        }
+                    }
+                }
+
+                // Flags for child
+                const childFlags = [];
+                if (child.once) childFlags.push('once');
+                if (child.triggered) childFlags.push('TRIGGERED');
+                if (childFlags.length > 0) {
+                    const flagClass = child.triggered ? 'sensor-triggered' : '';
+                    html += ` <span class="sensor-flags ${flagClass}">[${childFlags.join(', ')}]</span>`;
+                }
+
+                // Properties for child
+                if (child.properties && Object.keys(child.properties).length > 0) {
+                    html += ` <span class="sensor-properties">`;
+                    for (const [key, value] of Object.entries(child.properties)) {
+                        let displayValue;
+                        if (typeof value === 'boolean') displayValue = value ? '\u2713' : '\u2717';
+                        else if (Array.isArray(value)) displayValue = '[' + value.join(', ') + ']';
+                        else displayValue = escapeHtml(String(value));
+                        html += `<span class="sensor-prop">${escapeHtml(key)}=${displayValue}</span> `;
+                    }
+                    html += `</span>`;
+                }
+
+                html += '</div>';
+
+                // Recurse for nested compound sensors
+                if (child.children && child.children.length > 0) {
+                    for (const grandchild of child.children) {
+                        html += this.renderSensorNode(grandchild, depth + 2);
+                    }
+                }
+            }
+        }
+
+        return html;
+    }
+
     /**
      * Collect all alarms across all entities for the global alarms panel.
      */
@@ -3124,9 +4297,14 @@ class EntityInspector {
             // Count SET alarms for sorting
             const setCount = Object.values(alarms).filter(a => a.state === 'SET').length;
 
+            // Extract surname from LaitInspectorComponent
+            const inspector = entity.components?.LaitInspectorComponent;
+            const surname = inspector?.fields?.surname || '';
+
             allAlarms.push({
                 entityId,
                 name,
+                surname,
                 alarms,
                 sensors: sensors ? Object.keys(sensors) : [],
                 setCount,
@@ -3139,7 +4317,8 @@ class EntityInspector {
             allAlarms = allAlarms.filter(entry => {
                 const nameMatch = entry.name.toLowerCase().includes(this.alarmsFilter);
                 const idMatch = String(entry.entityId).includes(this.alarmsFilter);
-                return nameMatch || idMatch;
+                const surnameMatch = entry.surname.toLowerCase().includes(this.alarmsFilter);
+                return nameMatch || idMatch || surnameMatch;
             });
         }
 
@@ -3282,6 +4461,11 @@ class EntityInspector {
                         <span class="entity-id">#${entry.entityId}</span>
                     </span>
                     <span class="alarm-badges">${alarmBadges}</span>
+                    <div class="alarm-actions">
+                        <span class="entity-surname">${escapeHtml(entry.surname) || '---'}</span>
+                        <button class="action-btn edit-btn" data-entity-id="${entry.entityId}" data-current="${escapeHtml(entry.surname)}" title="Edit surname">✎</button>
+                        <button class="action-btn tp-btn" data-entity-id="${entry.entityId}" title="Teleport to entity">TP</button>
+                    </div>
                     ${debugInfo ? `<div class="alarm-debug-info">${debugInfo}</div>` : ''}
                 </div>
             `;
@@ -3310,6 +4494,25 @@ class EntityInspector {
                 const entityId = parseInt(el.dataset.entityId);
                 this.selectEntity(entityId);
                 this.switchTab('entities');
+            });
+        });
+
+        // Add click handlers for teleport buttons
+        this.alarmsPanel.querySelectorAll('.tp-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const entityId = parseInt(btn.dataset.entityId);
+                this.requestTeleportTo(entityId);
+            });
+        });
+
+        // Add click handlers for edit surname buttons
+        this.alarmsPanel.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const entityId = parseInt(btn.dataset.entityId);
+                const currentSurname = btn.dataset.current || '';
+                this.openSurnameEditor(entityId, currentSurname);
             });
         });
     }
@@ -3745,6 +4948,12 @@ class EntityInspector {
 
         this.selectedEntityId = entityId;
 
+        // Clear tracked inspector UI state for fresh entity view
+        this.inspectorExpandedNodes.clear();
+        this.inspectorCollapsedSections.clear();
+        this.inspectorExpandedJsonPaths.clear();
+        this._lastInspectorHtml = '';
+
         // Select new
         const row = document.querySelector(`[data-entity-id="${entityId}"]`);
         if (row) {
@@ -3764,6 +4973,17 @@ class EntityInspector {
             const time = now.toTimeString().split(' ')[0];
             this.lastUpdateEl.textContent = `Last update: ${time}`;
         }
+    }
+
+    startInstructionPoll() {
+        setInterval(() => {
+            if (this.inspectorPaused || !this.selectedEntityId) return;
+            const entity = this.entities.get(this.selectedEntityId);
+            if (!entity) return;
+            if (entity.entityType === 'NPC' || entity.components?.NPCEntity) {
+                this.requestEntityInstructions(entity.entityId);
+            }
+        }, 500);
     }
 
     startUptimeTimer() {
@@ -3850,6 +5070,28 @@ class EntityInspector {
         if (this.inspectorPauseBtnHeader) {
             this.inspectorPauseBtnHeader.addEventListener('click', () => {
                 this.toggleInspectorPause();
+            });
+        }
+
+        // Inspector fullscreen button
+        if (this.inspectorFullscreenBtn) {
+            this.inspectorFullscreenBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleInspectorFullscreen();
+            });
+        }
+
+        // Inspector font scale slider
+        if (this.inspectorFontScaleInput) {
+            const savedScale = localStorage.getItem(STORAGE_PREFIX + 'inspector-font-scale') || '100';
+            this.inspectorFontScaleInput.value = savedScale;
+            this.inspectorFontScaleValue.textContent = savedScale + '%';
+            this.applyInspectorFontScale(savedScale);
+            this.inspectorFontScaleInput.addEventListener('input', (e) => {
+                const val = e.target.value;
+                this.inspectorFontScaleValue.textContent = val + '%';
+                this.applyInspectorFontScale(val);
+                localStorage.setItem(STORAGE_PREFIX + 'inspector-font-scale', val);
             });
         }
 
@@ -4148,6 +5390,13 @@ class EntityInspector {
                 this.openPatchModal();
             });
         }
+
+        // Refresh asset button (re-fetches current asset from game API)
+        if (this.refreshAssetBtn) {
+            this.refreshAssetBtn.addEventListener('click', () => {
+                this.refreshCurrentAsset();
+            });
+        }
     }
 
     // Request methods
@@ -4165,6 +5414,22 @@ class EntityInspector {
 
     requestAssetDetail(category, assetId) {
         this.send('REQUEST_ASSET_DETAIL', { category, assetId });
+    }
+
+    /**
+     * Refresh the currently displayed asset by re-fetching from game API.
+     */
+    refreshCurrentAsset() {
+        if (!this.assetDetail) {
+            this.log('No asset selected to refresh', 'warn');
+            return;
+        }
+
+        const category = this.assetDetail.category;
+        const assetId = this.assetDetail.id;
+
+        this.log(`Refreshing asset: ${category}/${assetId}`, 'info');
+        this.requestAssetDetail(category, assetId);
     }
 
     requestSearchAssets(query) {
@@ -4196,7 +5461,7 @@ class EntityInspector {
      * Handle ASSETS_REFRESHED response from server.
      * Preserves UI state (expanded categories, selected asset, scroll position).
      */
-    handleAssetsRefreshed() {
+    handleAssetsRefreshed(data) {
         this.log('Assets refreshed successfully', 'connect');
 
         // Reset button state
@@ -4224,6 +5489,19 @@ class EntityInspector {
 
         // Request fresh categories (handleAssetCategories will trigger search if needed)
         this.requestAssetCategories();
+
+        // Auto-refresh if currently viewing the patched asset
+        const patchedPath = data?.patchedAssetPath;
+        if (patchedPath && this.assetDetail?.id === patchedPath) {
+            this.log(`Auto-refreshing patched asset: ${patchedPath}`, 'info');
+            // Re-request the asset detail
+            this.requestAssetDetail(this.selectedCategory, this.selectedAsset);
+
+            // If patch modal is still open, refresh the original pane
+            if (!this.patchModal?.classList.contains('hidden')) {
+                this.refreshPatchModalAsset();
+            }
+        }
     }
 
     // Handle messages
@@ -4273,6 +5551,24 @@ class EntityInspector {
     }
 
     handleAssetDetail(data) {
+        // Check if this is a pending modal refresh (user clicked refresh in patch modal)
+        if (this._pendingModalRefresh?.category === data.category &&
+            this._pendingModalRefresh?.assetId === data.id) {
+            this._pendingModalRefresh = null;
+
+            // Update only the original pane, preserve user's modifications
+            const rawJson = data.rawJson || JSON.stringify(data.content, null, 2);
+            if (this.originalJson) this.originalJson.textContent = rawJson;
+            this.assetDetail = data;
+
+            // Reset button loading state
+            this.refreshOriginalBtn?.classList.remove('loading');
+
+            // Regenerate patch preview with new original vs current modified
+            this.updatePatchPreview();
+            return;
+        }
+
         // Cache sensors if this is a Role asset (NPC category with Sensors)
         if (data.category === 'NPC' && data.content?.Sensors) {
             const rolePath = `NPC/${data.id}`;
@@ -4615,7 +5911,7 @@ class EntityInspector {
         }
 
         return `
-            <div class="entity-assets-section component-section">
+            <div class="entity-assets-section component-section" data-section-key="ASSETS">
                 <div class="component-header">
                     <span class="toggle">[-]</span>
                     <span class="component-name">📦 ASSETS</span>
@@ -4629,6 +5925,11 @@ class EntityInspector {
 
     renderAssetDetail() {
         if (!this.assetDetailEl) return;
+
+        // Show/hide refresh button based on whether an asset is selected
+        if (this.refreshAssetBtn) {
+            this.refreshAssetBtn.classList.toggle('hidden', !this.assetDetail);
+        }
 
         if (!this.assetDetail) {
             this.assetDetailEl.innerHTML = `
@@ -4732,6 +6033,13 @@ class EntityInspector {
                 if (pattern && pattern.includes('*')) {
                     this.send('REQUEST_TEST_WILDCARD', { pattern });
                 }
+            });
+        }
+
+        // Refresh original JSON button
+        if (this.refreshOriginalBtn) {
+            this.refreshOriginalBtn.addEventListener('click', () => {
+                this.refreshPatchModalAsset();
             });
         }
 
@@ -5018,11 +6326,28 @@ class EntityInspector {
                 title: 'Component Inspector',
                 content: `
                     <p>Displays all ECS components attached to the selected entity.</p>
-                    <h4>Features:</h4>
+                    <h4>Sub-Tabs:</h4>
+                    <ul>
+                        <li><strong>Components</strong> - Entity header, asset links, and filtered ECS components</li>
+                        <li><strong>Instructions</strong> - Alarms, timers, sensors, instruction tree, and event log</li>
+                    </ul>
+                    <h4>Interactions:</h4>
                     <ul>
                         <li><strong>Click arrows</strong> - Expand/collapse components</li>
-                        <li><strong>Alt+Click</strong> - Expand/collapse all descendants</li>
+                        <li><strong>Alt+Click</strong> - Expand/collapse all descendants under clicked node</li>
                         <li><strong>Blue "expand"</strong> - Lazy-loaded data, click to fetch (may not always work)</li>
+                    </ul>
+                    <h4>Controls:</h4>
+                    <ul>
+                        <li><strong>Font slider (A)</strong> - Scale instructions text size (90%-150%)</li>
+                        <li><strong>Fullscreen (⤢)</strong> - Expand inspector to full viewport</li>
+                        <li><strong>Event log handle</strong> - Drag the bar between instructions and event log to resize</li>
+                    </ul>
+                    <h4>Scroll & State:</h4>
+                    <ul>
+                        <li>Scroll position is preserved per sub-tab across refreshes</li>
+                        <li>Event log auto-scrolls to bottom unless you scroll up</li>
+                        <li>Expanded/collapsed nodes are remembered across updates</li>
                     </ul>
                 `
             },
@@ -5272,6 +6597,31 @@ class EntityInspector {
         if (this.patchModal) {
             this.patchModal.classList.add('hidden');
         }
+        // Clear pending modal refresh flag
+        this._pendingModalRefresh = null;
+    }
+
+    /**
+     * Refresh the original JSON in the patch modal while preserving user modifications.
+     * Requests fresh asset data from the server.
+     */
+    refreshPatchModalAsset() {
+        if (!this.assetDetail) return;
+
+        // Show loading state
+        this.refreshOriginalBtn?.classList.add('loading');
+
+        // Flag this as a modal refresh so handleAssetDetail knows to only update original pane
+        this._pendingModalRefresh = {
+            category: this.assetDetail.category,
+            assetId: this.assetDetail.id
+        };
+
+        // Request fresh asset data (reuse existing message)
+        this.send('REQUEST_ASSET_DETAIL', {
+            category: this.assetDetail.category,
+            assetId: this.assetDetail.id
+        });
     }
 
     setPatchEditorMode(mode) {
@@ -5429,7 +6779,8 @@ class EntityInspector {
                     baseAssetPath: baseAssetPath,
                     timestamp: patch.modifiedTime,
                     operation: 'loaded',  // Indicate these were loaded from disk
-                    content: patch.content
+                    content: patch.content,
+                    isEditable: true  // Our own patches are always editable
                 };
             });
 
@@ -5444,12 +6795,55 @@ class EntityInspector {
         }
     }
 
+    /**
+     * Handle ALL_PATCHES_LIST message - patches from all mods with editability info.
+     */
+    handleAllPatchesList(data) {
+        if (!data.patches || data.patches.length === 0) {
+            this.sessionHistory = [];
+            this.renderHistory();
+            return;
+        }
+
+        // Convert patches to session history entries
+        this.sessionHistory = data.patches.map(patch => {
+            // Extract BaseAssetPath from patch content if possible
+            let baseAssetPath = 'unknown';
+            try {
+                const parsed = JSON.parse(patch.content);
+                baseAssetPath = parsed.BaseAssetPath || 'unknown';
+            } catch (e) {
+                // Ignore parse errors
+            }
+
+            return {
+                id: patch.modifiedTime + Math.random(),
+                filename: patch.filename,
+                baseAssetPath: baseAssetPath,
+                timestamp: patch.modifiedTime,
+                operation: patch.isEditable ? 'loaded' : 'external',
+                content: patch.content,
+                sourceMod: patch.sourceMod,
+                isEditable: patch.isEditable
+            };
+        });
+
+        // Sort by timestamp descending (most recent first)
+        this.sessionHistory.sort((a, b) => b.timestamp - a.timestamp);
+
+        const editableCount = this.sessionHistory.filter(p => p.isEditable).length;
+        const externalCount = this.sessionHistory.length - editableCount;
+        this.log(`Loaded ${editableCount} editable + ${externalCount} readonly patches from all mods`, 'info');
+        this.renderHistory();
+    }
+
     requestDeletePatch(filename) {
         this.send('REQUEST_DELETE_PATCH', { filename });
     }
 
     requestListPatches() {
-        this.send('REQUEST_LIST_PATCHES');
+        // Request patches from all mods (with editability info)
+        this.send('REQUEST_LIST_ALL_PATCHES');
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -5609,12 +7003,22 @@ class EntityInspector {
 
         const html = this.sessionHistory.map((entry, index) => {
             const time = new Date(entry.timestamp).toLocaleTimeString();
+            const isEditable = entry.isEditable !== false;
+            const readonlyClass = isEditable ? '' : 'readonly';
+            const modBadge = !isEditable && entry.sourceMod
+                ? `<span class="source-mod">[${escapeHtml(entry.sourceMod.split(':').pop())}]</span>`
+                : '';
+            const readonlyBadge = !isEditable
+                ? '<span class="readonly-badge">readonly</span>'
+                : '';
+
             return `
-                <div class="history-item" data-index="${index}">
-                    <div class="filename">${escapeHtml(entry.filename)}</div>
+                <div class="history-item ${readonlyClass}" data-index="${index}">
+                    <div class="filename">${escapeHtml(entry.filename)} ${modBadge}</div>
                     <div class="meta">
                         <span class="time">${time}</span>
                         <span class="operation ${entry.operation}">${entry.operation}</span>
+                        ${readonlyBadge}
                     </div>
                 </div>
             `;
@@ -5635,34 +7039,42 @@ class EntityInspector {
         const entry = this.sessionHistory[index];
         if (!entry) return;
 
+        const isEditable = entry.isEditable !== false;
+        const sourceModInfo = entry.sourceMod ? `<span>Source: ${escapeHtml(entry.sourceMod)}</span>` : '';
+        const readonlyWarning = !isEditable
+            ? '<div class="history-modal-readonly-warning">This patch is from another mod and cannot be edited.</div>'
+            : '';
+
         // Create modal HTML
         const modalHtml = `
             <div class="history-modal-overlay" id="history-modal-overlay">
                 <div class="history-modal">
                     <div class="history-modal-header">
-                        <span class="history-modal-title">${escapeHtml(entry.filename)}</span>
+                        <span class="history-modal-title">${escapeHtml(entry.filename)}${!isEditable ? ' (readonly)' : ''}</span>
                         <button class="history-modal-close" id="history-modal-close">×</button>
                     </div>
                     <div class="history-modal-meta">
                         <span>Asset: ${escapeHtml(entry.baseAssetPath)}</span>
                         <span>Operation: ${entry.operation}</span>
                         <span>Time: ${new Date(entry.timestamp).toLocaleString()}</span>
+                        ${sourceModInfo}
                     </div>
+                    ${readonlyWarning}
                     <div class="history-modal-content">
                         <div class="json-editor-container">
                             <div class="indent-guides" id="history-json-guides"></div>
-                            <textarea id="history-patch-content" class="json-edit" spellcheck="false">${escapeHtml(entry.content || 'No content available')}</textarea>
+                            <textarea id="history-patch-content" class="json-edit" spellcheck="false" ${!isEditable ? 'readonly' : ''}>${escapeHtml(entry.content || 'No content available')}</textarea>
                             <div class="bracket-highlight-layer" id="history-json-brackets"></div>
                         </div>
                     </div>
                     <div class="history-modal-actions">
-                        <button class="btn-danger" id="history-delete-btn">Delete</button>
+                        ${isEditable ? '<button class="btn-danger" id="history-delete-btn">Delete</button>' : ''}
                         <button class="btn-secondary" id="history-copy-btn">Copy</button>
-                        <button class="btn-primary" id="history-republish-btn">Republish</button>
+                        ${isEditable ? '<button class="btn-primary" id="history-republish-btn">Republish</button>' : ''}
                     </div>
-                    <div class="history-modal-warning">
+                    ${isEditable ? `<div class="history-modal-warning">
                         Note: Game may need to be restarted for patch deletion to take effect. Patch revert is planned for a future update.
-                    </div>
+                    </div>` : ''}
                 </div>
             </div>
         `;
@@ -5694,11 +7106,13 @@ class EntityInspector {
         });
         closeBtn.addEventListener('click', closeModal);
 
-        deleteBtn.addEventListener('click', () => {
-            // Use server-side deletion to sync with InspectorPatches folder
-            this.requestDeletePatch(entry.filename);
-            closeModal();
-        });
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                // Use server-side deletion to sync with InspectorPatches folder
+                this.requestDeletePatch(entry.filename);
+                closeModal();
+            });
+        }
 
         copyBtn.addEventListener('click', () => {
             navigator.clipboard.writeText(contentArea.value);
@@ -5706,11 +7120,13 @@ class EntityInspector {
             setTimeout(() => copyBtn.textContent = 'Copy', 1500);
         });
 
-        republishBtn.addEventListener('click', () => {
-            const updatedContent = contentArea.value;
-            this.requestPublishPatch(entry.filename, updatedContent);
-            closeModal();
-        });
+        if (republishBtn) {
+            republishBtn.addEventListener('click', () => {
+                const updatedContent = contentArea.value;
+                this.requestPublishPatch(entry.filename, updatedContent);
+                closeModal();
+            });
+        }
 
         // Close on Escape
         const escHandler = (e) => {

@@ -60,6 +60,7 @@ public enum MessageType {
     REQUEST_LIST_DRAFTS,       // List saved drafts
     REQUEST_DELETE_PATCH,      // Delete a published patch
     REQUEST_LIST_PATCHES,      // List all published patches
+    REQUEST_LIST_ALL_PATCHES,  // List patches from all mods (including other asset packs)
 
     // ═══════════════════════════════════════════════════════════════
     // HYTALOR PATCHING (Server → Client)
@@ -71,6 +72,7 @@ public enum MessageType {
     DRAFTS_LIST,               // List of saved drafts
     PATCH_DELETED,             // Patch delete confirmation
     PATCHES_LIST,              // List of published patches
+    ALL_PATCHES_LIST,          // Patches from all mods (with isEditable flag)
 
     // ═══════════════════════════════════════════════════════════════
     // FEATURE DETECTION (Server → Client)
@@ -96,6 +98,16 @@ public enum MessageType {
     ENTITY_ALARMS,             // Formatted alarm state
     TIMER_SEARCH_RESULTS,      // Entities matching timer criteria
     ALARM_SEARCH_RESULTS,      // Entities matching alarm criteria
+
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION (Client → Server)
+    // ═══════════════════════════════════════════════════════════════
+    REQUEST_ENTITY_INSTRUCTIONS,   // Request instruction tree for an NPC entity
+
+    // ═══════════════════════════════════════════════════════════════
+    // NPC INSTRUCTION INSPECTION (Server → Client)
+    // ═══════════════════════════════════════════════════════════════
+    ENTITY_INSTRUCTIONS,           // Serialized instruction tree with runtime state
 
     // ═══════════════════════════════════════════════════════════════
     // ENTITY ACTIONS (Client → Server)

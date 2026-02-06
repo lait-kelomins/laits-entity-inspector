@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.5-alpha
+
+### Added
+- **Inspector Sub-Tabs** - Split inspector into Components and Instructions tabs with independent scroll
+- **Font Scale Slider** - Scale instructions text size from 90% to 150% (persisted)
+- **Fullscreen Mode** - Expand inspector to full viewport with dedicated button
+- **Resizable Event Log** - Drag handle between instructions and event log to resize (persisted)
+- **Event Log Scroll** - Sticky-bottom auto-scroll, preserved on refresh
+
+### Changed
+- **Alt+Click** - Now expands/collapses only descendants of the clicked node (not entire tree)
+- **Entity Header** - Only shown in Components tab
+- **Component Filter** - Hidden when Instructions tab is active
+- **Info Popover** - Updated inspector help with sub-tabs, controls, and scroll behavior
+
+### Fixed
+- **Scroll Preservation** - Scroll position maintained per sub-tab across data refreshes and zoom levels
+
+---
+
 ## v0.1.4
 
 ### Fixed

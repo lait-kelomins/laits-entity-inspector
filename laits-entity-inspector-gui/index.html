@@ -118,6 +118,12 @@
                 <div class="panel-header">
                     <span class="panel-title">┌─[ COMPONENT INSPECTOR ]─────────────────┐</span>
                     <span class="header-spacer"></span>
+                    <label class="font-scale-control" title="Font scale">
+                        <span class="font-scale-label">A</span>
+                        <input type="range" id="inspector-font-scale" min="90" max="150" step="10" value="100">
+                        <span class="font-scale-value" id="inspector-font-scale-value">100%</span>
+                    </label>
+                    <button class="copy-btn" id="inspector-fullscreen-btn" title="Toggle Fullscreen">⤢</button>
                     <button class="panel-pause-btn paused" id="inspector-pause-btn-header" title="Pause/Resume Component Updates">
                         <span id="inspector-pause-icon-header">▶</span>
                         <span id="inspector-pause-label-header">PLAY</span>
@@ -175,6 +181,7 @@
                     <div class="panel-header">
                         <span class="panel-title">┌─[ ASSET DETAIL ]────────────┐</span>
                         <span class="header-spacer"></span>
+                        <button class="refresh-asset-btn hidden" id="refresh-asset-btn" title="Refresh Asset">↻</button>
                         <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
                         <button class="info-btn" data-info="asset-detail" title="Asset Detail Help">i</button>
                     </div>
@@ -384,7 +391,10 @@
                 <!-- Diff Mode Editor -->
                 <div class="patch-editor diff-mode" id="patch-editor-diff">
                     <div class="editor-pane original-pane">
-                        <div class="pane-header">ORIGINAL (read-only)</div>
+                        <div class="pane-header">
+                            <span>ORIGINAL (read-only)</span>
+                            <button class="refresh-editor-btn" id="refresh-original-btn" title="Refresh from server">↻</button>
+                        </div>
                         <pre id="original-json" class="json-view"></pre>
                     </div>
                     <div class="editor-resize-handle" id="editor-resize-handle"></div>

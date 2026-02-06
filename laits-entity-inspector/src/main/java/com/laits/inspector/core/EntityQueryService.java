@@ -2,6 +2,7 @@ package com.laits.inspector.core;
 
 import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.data.*;
+import com.laits.inspector.data.InstructionData.InstructionTreeData;
 
 import java.time.Instant;
 import java.util.*;
@@ -13,6 +14,7 @@ import java.util.stream.Collectors;
  */
 public class EntityQueryService {
     private final InspectorCache cache;
+    private final InstructionSerializer instructionSerializer = new InstructionSerializer();
     private Supplier<Long> gameTimeSupplier;
 
     public EntityQueryService(InspectorCache cache) {
@@ -95,6 +97,35 @@ public class EntityQueryService {
         }
 
         return extractAlarms(entity);
+    }
+
+    /**
+     * Get instruction tree data for an NPC entity.
+     * Accesses the live NPCEntity component via the cache's stored component objects,
+     * then uses InstructionSerializer to traverse the instruction tree via reflection.
+     *
+     * @param entityId The entity ID
+     * @return Serialized instruction tree, or null if not found / not NPC
+     */
+    public InstructionTreeData getInstructions(long entityId) {
+        // Get the live NPCEntity component from cache
+        Object npcComponent = cache.getLiveComponent(entityId, "NPCEntity");
+        if (npcComponent == null) {
+            return null;
+        }
+
+        if (!(npcComponent instanceof com.hypixel.hytale.server.npc.entities.NPCEntity npc)) {
+            return null;
+        }
+
+        // Get current game time as Instant for alarm state calculation
+        Instant gameTime = null;
+        Long gameTimeMs = getCurrentGameTimeMillis();
+        if (gameTimeMs != null) {
+            gameTime = Instant.ofEpochMilli(gameTimeMs);
+        }
+
+        return instructionSerializer.serialize(npc, gameTime);
     }
 
     /**
