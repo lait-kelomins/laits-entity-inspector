@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.5.0 - Debug Feature Toggles
+
+### Added
+- **Debug Settings Tab** - New "Debug" tab in settings modal with toggles for every inspector subsystem
+- **10 Feature Toggles** - Position tracking, entity lifecycle, on-demand refresh, alarm/timer/instruction inspection, lazy expansion, asset browser, patch management, entity actions
+- **Runtime Toggle** - All toggles configurable at runtime via settings UI or MCP CONFIG_UPDATE
+- **Config Persistence** - Debug toggles saved to JSON config file and survive restarts
+
+### Fixed
+- **Alarm Display** - Reverted alarm serialization that caused all alarms to show as UNSET
+
+---
+
 ## v0.1.5-alpha
 
 ### Added
