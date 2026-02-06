@@ -310,6 +310,9 @@ public class OutgoingMessage {
         public final boolean packetLogEnabled;
         public final List<String> packetLogExcluded;
 
+        // Debug feature toggles
+        public final DebugData debug;
+
         ConfigData(InspectorConfig config) {
             this.enabled = config.isEnabled();
             this.updateIntervalTicks = config.getUpdateIntervalTicks();
@@ -327,6 +330,37 @@ public class OutgoingMessage {
             var pl = config.getPacketLog();
             this.packetLogEnabled = pl.isEnabled();
             this.packetLogExcluded = pl.getExcludedPackets();
+
+            this.debug = new DebugData(config.getDebug());
+        }
+    }
+
+    /**
+     * Debug feature toggle data for frontend sync.
+     */
+    public static class DebugData {
+        public final boolean positionTracking;
+        public final boolean entityLifecycle;
+        public final boolean onDemandRefresh;
+        public final boolean alarmInspection;
+        public final boolean timerInspection;
+        public final boolean instructionInspection;
+        public final boolean lazyExpansion;
+        public final boolean assetBrowser;
+        public final boolean patchManagement;
+        public final boolean entityActions;
+
+        DebugData(InspectorConfig.DebugConfig debug) {
+            this.positionTracking = debug.isPositionTracking();
+            this.entityLifecycle = debug.isEntityLifecycle();
+            this.onDemandRefresh = debug.isOnDemandRefresh();
+            this.alarmInspection = debug.isAlarmInspection();
+            this.timerInspection = debug.isTimerInspection();
+            this.instructionInspection = debug.isInstructionInspection();
+            this.lazyExpansion = debug.isLazyExpansion();
+            this.assetBrowser = debug.isAssetBrowser();
+            this.patchManagement = debug.isPatchManagement();
+            this.entityActions = debug.isEntityActions();
         }
     }
 

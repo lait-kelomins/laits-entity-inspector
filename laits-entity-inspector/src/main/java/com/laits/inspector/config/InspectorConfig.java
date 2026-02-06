@@ -35,6 +35,9 @@ public class InspectorConfig {
     // Packet logging settings
     private PacketLogConfig packetLog = new PacketLogConfig();
 
+    // Debug feature toggles
+    private DebugConfig debug = new DebugConfig();
+
     // Transient - not serialized
     private transient Path configPath;
 
@@ -108,6 +111,56 @@ public class InspectorConfig {
             }
             return false;
         }
+    }
+
+    public static class DebugConfig {
+        // Tick-based systems (continuous, potential side effects)
+        private boolean positionTracking = true;
+        private boolean entityLifecycle = true;
+
+        // On-demand features (triggered by MCP/client requests)
+        private boolean onDemandRefresh = true;
+        private boolean alarmInspection = true;
+        private boolean timerInspection = true;
+        private boolean instructionInspection = true;
+        private boolean lazyExpansion = true;
+
+        // Heavy features
+        private boolean assetBrowser = true;
+        private boolean patchManagement = true;
+
+        // Dangerous features (modify game state)
+        private boolean entityActions = true;
+
+        public boolean isPositionTracking() { return positionTracking; }
+        public void setPositionTracking(boolean positionTracking) { this.positionTracking = positionTracking; }
+
+        public boolean isEntityLifecycle() { return entityLifecycle; }
+        public void setEntityLifecycle(boolean entityLifecycle) { this.entityLifecycle = entityLifecycle; }
+
+        public boolean isOnDemandRefresh() { return onDemandRefresh; }
+        public void setOnDemandRefresh(boolean onDemandRefresh) { this.onDemandRefresh = onDemandRefresh; }
+
+        public boolean isAlarmInspection() { return alarmInspection; }
+        public void setAlarmInspection(boolean alarmInspection) { this.alarmInspection = alarmInspection; }
+
+        public boolean isTimerInspection() { return timerInspection; }
+        public void setTimerInspection(boolean timerInspection) { this.timerInspection = timerInspection; }
+
+        public boolean isInstructionInspection() { return instructionInspection; }
+        public void setInstructionInspection(boolean instructionInspection) { this.instructionInspection = instructionInspection; }
+
+        public boolean isLazyExpansion() { return lazyExpansion; }
+        public void setLazyExpansion(boolean lazyExpansion) { this.lazyExpansion = lazyExpansion; }
+
+        public boolean isAssetBrowser() { return assetBrowser; }
+        public void setAssetBrowser(boolean assetBrowser) { this.assetBrowser = assetBrowser; }
+
+        public boolean isPatchManagement() { return patchManagement; }
+        public void setPatchManagement(boolean patchManagement) { this.patchManagement = patchManagement; }
+
+        public boolean isEntityActions() { return entityActions; }
+        public void setEntityActions(boolean entityActions) { this.entityActions = entityActions; }
     }
 
     // Getters and setters
@@ -186,6 +239,10 @@ public class InspectorConfig {
         return packetLog;
     }
 
+    public DebugConfig getDebug() {
+        return debug;
+    }
+
     /**
      * Load configuration from file, creating default if not exists.
      */
@@ -242,6 +299,7 @@ public class InspectorConfig {
             this.maxCachedPackets = reloaded.maxCachedPackets;
             this.websocket = reloaded.websocket;
             this.packetLog = reloaded.packetLog;
+            this.debug = reloaded.debug;
             LOGGER.atInfo().log("Reloaded inspector config");
         }
     }

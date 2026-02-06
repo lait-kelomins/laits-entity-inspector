@@ -371,6 +371,50 @@ public class EntityDataCollector {
     }
 
     /**
+     * Collect a single entity by its ID from the world's entity store.
+     * Iterates chunks to find the entity matching the given ref index.
+     * MUST be called from world thread.
+     *
+     * @param entityId The entity ID (ref index)
+     * @param world    The current world
+     * @return CollectionResult or null if not found
+     */
+    public CollectionResult collectEntityById(long entityId, World world) {
+        if (world == null) {
+            return null;
+        }
+
+        EntityStore entityStore = world.getEntityStore();
+        if (entityStore == null) {
+            return null;
+        }
+
+        Store<EntityStore> store = entityStore.getStore();
+        if (store == null) {
+            return null;
+        }
+
+        final CollectionResult[] found = new CollectionResult[1];
+
+        store.forEachChunk((ArchetypeChunk<EntityStore> chunk, CommandBuffer<EntityStore> buffer) -> {
+            if (found[0] != null) {
+                return; // Already found
+            }
+
+            int size = chunk.size();
+            for (int i = 0; i < size; i++) {
+                Ref<EntityStore> ref = chunk.getReferenceTo(i);
+                if (ref != null && ref.getIndex() == entityId) {
+                    found[0] = collectFromChunkWithRefs(chunk, i);
+                    return;
+                }
+            }
+        });
+
+        return found[0];
+    }
+
+    /**
      * Check if an entity should be included based on config.
      */
     private boolean shouldInclude(EntitySnapshot snapshot) {
