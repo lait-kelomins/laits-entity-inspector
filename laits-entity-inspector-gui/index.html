@@ -460,7 +460,13 @@
                 <span class="settings-title">┌─[ SETTINGS ]────────────────────────────┐</span>
                 <button class="settings-close" id="settings-close">&times;</button>
             </div>
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-settings-tab="general">General</button>
+                <button class="settings-tab" data-settings-tab="debug">Debug</button>
+            </div>
             <div class="settings-content">
+                <!-- General Tab -->
+                <div class="settings-tab-content active" id="settings-tab-general">
                 <!-- General Settings -->
                 <div class="settings-section">
                     <h3>General</h3>
@@ -530,6 +536,70 @@
                         <span id="setting-ws-max-clients" class="setting-value">10</span>
                     </div>
                 </div>
+                </div><!-- /settings-tab-general -->
+
+                <!-- Debug Tab -->
+                <div class="settings-tab-content" id="settings-tab-debug">
+                <div class="settings-section">
+                    <h3>Tick Systems</h3>
+                    <span class="setting-hint">Continuous systems that run every tick</span>
+                    <div class="setting-row">
+                        <label for="setting-debug-position-tracking">Position Tracking</label>
+                        <input type="checkbox" id="setting-debug-position-tracking" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-entity-lifecycle">Entity Lifecycle</label>
+                        <input type="checkbox" id="setting-debug-entity-lifecycle" checked>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>On-Demand Features</h3>
+                    <span class="setting-hint">Triggered by MCP/client requests</span>
+                    <div class="setting-row">
+                        <label for="setting-debug-on-demand-refresh">On-Demand Refresh</label>
+                        <input type="checkbox" id="setting-debug-on-demand-refresh" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-alarm-inspection">Alarm Inspection</label>
+                        <input type="checkbox" id="setting-debug-alarm-inspection" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-timer-inspection">Timer Inspection</label>
+                        <input type="checkbox" id="setting-debug-timer-inspection" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-instruction-inspection">Instruction Inspection</label>
+                        <input type="checkbox" id="setting-debug-instruction-inspection" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-lazy-expansion">Lazy Expansion</label>
+                        <input type="checkbox" id="setting-debug-lazy-expansion" checked>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Heavy Features</h3>
+                    <span class="setting-hint">Resource-intensive subsystems</span>
+                    <div class="setting-row">
+                        <label for="setting-debug-asset-browser">Asset Browser</label>
+                        <input type="checkbox" id="setting-debug-asset-browser" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label for="setting-debug-patch-management">Patch Management</label>
+                        <input type="checkbox" id="setting-debug-patch-management" checked>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Dangerous Features</h3>
+                    <span class="setting-hint">Actions that modify game state</span>
+                    <div class="setting-row">
+                        <label for="setting-debug-entity-actions">Entity Actions</label>
+                        <input type="checkbox" id="setting-debug-entity-actions" checked>
+                    </div>
+                </div>
+                </div><!-- /settings-tab-debug -->
             </div>
             <div class="settings-footer">
                 <button class="settings-btn" id="settings-apply">Apply Changes</button>

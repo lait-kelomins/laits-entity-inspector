@@ -7,7 +7,6 @@ import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.math.vector.Vector3d;
-import com.laits.inspector.core.EntityDataCollector.CollectionResult;
 import com.laits.inspector.core.InspectorCore;
 import com.laits.inspector.data.PositionUpdate;
 
@@ -30,7 +29,6 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
     private static class TrackedPosition {
         double x, y, z;
         float yaw, pitch;
-        long lastFullUpdate;
 
         boolean positionChanged(double nx, double ny, double nz, double threshold) {
             return Math.abs(x - nx) > threshold ||
@@ -55,13 +53,9 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
     private final List<PositionUpdate> positionBatch = new ArrayList<>();
 
     private int tickCounter = 0;
-    private int fullUpdateCounter = 0;
 
     // Position change threshold (in blocks)
     private static final double POSITION_THRESHOLD = 0.01;
-
-    // Full update interval (every N update intervals, do a full component check)
-    private static final int FULL_UPDATE_MULTIPLIER = 10;
 
     public EntityUpdateSystem(InspectorCore core) {
         this.core = core;
@@ -78,7 +72,7 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
     @Override
     public void tick(float dt, int index, @Nonnull ArchetypeChunk<EntityStore> chunk,
                      @Nonnull Store<EntityStore> store, @Nonnull CommandBuffer<EntityStore> commandBuffer) {
-        if (!core.isEnabled() || core.isPaused()) {
+        if (!core.isEnabled() || core.isPaused() || !core.getConfig().getDebug().isPositionTracking()) {
             return;
         }
 
@@ -124,22 +118,6 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
                 positionBatch.add(new PositionUpdate(entityId, uuid, pos.getX(), pos.getY(), pos.getZ(), 0, 0));
 
                 tracked.update(pos.getX(), pos.getY(), pos.getZ(), 0, 0);
-            }
-
-            // Periodically do full component updates
-            fullUpdateCounter++;
-            if (fullUpdateCounter >= FULL_UPDATE_MULTIPLIER) {
-                fullUpdateCounter = 0;
-
-                long now = System.currentTimeMillis();
-                if (now - tracked.lastFullUpdate > 1000) { // At least 1 second between full updates
-                    tracked.lastFullUpdate = now;
-
-                    CollectionResult result = core.getCollector().collectFromChunkWithRefs(chunk, index);
-                    if (result != null && result.snapshot() != null) {
-                        core.onEntityUpdate(result.snapshot(), result.componentRefs());
-                    }
-                }
             }
         } catch (Exception e) {
             // Silent - don't crash the tick system

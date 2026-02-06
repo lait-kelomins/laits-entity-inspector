@@ -1691,6 +1691,46 @@ body {
     color: var(--error);
 }
 
+.settings-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 16px;
+    background: var(--gray-dark);
+    border-bottom: 1px solid var(--gray);
+}
+
+.settings-tab {
+    padding: 8px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.settings-tab:hover {
+    color: var(--text-bright);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.settings-tab-content {
+    display: none;
+}
+
+.settings-tab-content.active {
+    display: block;
+}
+
 .settings-content {
     flex: 1;
     overflow-y: auto;

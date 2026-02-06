@@ -423,73 +423,61 @@ public class EntityQueryService {
             return new AlarmInfo(name, AlarmInfo.STATE_SET, null, null);
         }
 
-        // Try to extract alarm state fields
-        // Alarms typically have: isSet, hasPassed, alarmInstant
+        // Read isSet from serialized data
         Boolean isSet = null;
-        Boolean hasPassed = null;
         Object isSetObj = alarmMap.get("isSet");
-        Object hasPassedObj = alarmMap.get("hasPassed");
-
         if (isSetObj instanceof Boolean b) {
             isSet = b;
         }
-        if (hasPassedObj instanceof Boolean b) {
-            hasPassed = b;
-        }
 
-        // Determine state
-        String state;
-        if (Boolean.TRUE.equals(hasPassed)) {
-            state = AlarmInfo.STATE_PASSED;
-        } else if (Boolean.TRUE.equals(isSet)) {
-            state = AlarmInfo.STATE_SET;
-        } else if (isSet != null || hasPassed != null) {
-            state = AlarmInfo.STATE_UNSET;
-        } else {
-            // Unknown structure, assume set if we have data
-            state = AlarmInfo.STATE_SET;
-        }
-
-        // Try to extract scheduled time
+        // Extract alarmInstant epoch millis from serialized data
         String scheduledTime = null;
         Double remainingSeconds = null;
-
-        // Get current game time for calculating remaining
-        Long currentGameTimeMs = getCurrentGameTimeMillis();
+        Long scheduledMs = null;
 
         Object alarmInstant = alarmMap.get("alarmInstant");
         if (alarmInstant instanceof Map<?, ?> instantMap) {
             Object epochMilli = ((Map<?, ?>) instantMap).get("epochMilli");
             if (epochMilli instanceof Number n) {
-                long scheduledMs = n.longValue();
-                scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
-
-                // Calculate remaining using game time, not wall-clock time
-                if (currentGameTimeMs != null) {
-                    long remainingMs = scheduledMs - currentGameTimeMs;
-                    remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
-                }
+                scheduledMs = n.longValue();
             }
         } else if (alarmInstant instanceof Number n) {
-            long scheduledMs = n.longValue();
-            scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
-
-            if (currentGameTimeMs != null) {
-                long remainingMs = scheduledMs - currentGameTimeMs;
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
-            }
+            scheduledMs = n.longValue();
         }
 
         // Also check for direct timestamp field
         Object timestamp = alarmMap.get("timestamp");
-        if (timestamp instanceof Number n && scheduledTime == null) {
-            long scheduledMs = n.longValue();
-            scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
+        if (scheduledMs == null && timestamp instanceof Number n) {
+            scheduledMs = n.longValue();
+        }
 
-            if (currentGameTimeMs != null) {
-                long remainingMs = scheduledMs - currentGameTimeMs;
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+        if (scheduledMs != null) {
+            scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
+        }
+
+        // Compute state and remaining time using game time (not wall-clock)
+        // alarmInstant stores game-time Instants, so we must compare against game time
+        Long currentGameTimeMs = getCurrentGameTimeMillis();
+        String state;
+
+        if (scheduledMs != null && currentGameTimeMs != null) {
+            // We have both alarm time and game time - compute state directly
+            long remainingMs = scheduledMs - currentGameTimeMs;
+            if (remainingMs <= 0) {
+                state = AlarmInfo.STATE_PASSED;
+                remainingSeconds = 0.0;
+            } else {
+                state = AlarmInfo.STATE_SET;
+                remainingSeconds = remainingMs / 1000.0;
             }
+        } else if (Boolean.FALSE.equals(isSet)) {
+            state = AlarmInfo.STATE_UNSET;
+        } else if (Boolean.TRUE.equals(isSet)) {
+            // isSet but no game time to compute hasPassed - report as SET
+            state = AlarmInfo.STATE_SET;
+        } else {
+            // No isSet field, no alarmInstant - assume set if we have data
+            state = AlarmInfo.STATE_SET;
         }
 
         return new AlarmInfo(name, state, scheduledTime, remainingSeconds);

@@ -687,6 +687,18 @@ class EntityInspector {
         this.settingWsAddress = document.getElementById('setting-ws-address');
         this.settingWsMaxClients = document.getElementById('setting-ws-max-clients');
 
+        // Debug toggle inputs
+        this.settingDebugPositionTracking = document.getElementById('setting-debug-position-tracking');
+        this.settingDebugEntityLifecycle = document.getElementById('setting-debug-entity-lifecycle');
+        this.settingDebugOnDemandRefresh = document.getElementById('setting-debug-on-demand-refresh');
+        this.settingDebugAlarmInspection = document.getElementById('setting-debug-alarm-inspection');
+        this.settingDebugTimerInspection = document.getElementById('setting-debug-timer-inspection');
+        this.settingDebugInstructionInspection = document.getElementById('setting-debug-instruction-inspection');
+        this.settingDebugLazyExpansion = document.getElementById('setting-debug-lazy-expansion');
+        this.settingDebugAssetBrowser = document.getElementById('setting-debug-asset-browser');
+        this.settingDebugPatchManagement = document.getElementById('setting-debug-patch-management');
+        this.settingDebugEntityActions = document.getElementById('setting-debug-entity-actions');
+
         // Global pause button (footer)
         this.globalPauseBtn = document.getElementById('global-pause-btn');
         this.globalPauseIcon = document.getElementById('global-pause-icon');
@@ -1977,6 +1989,19 @@ class EntityInspector {
                 e.stopPropagation();
             });
         }
+
+        // Settings tab switching
+        const settingsTabs = this.settingsModal.querySelectorAll('.settings-tab');
+        settingsTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetTab = tab.dataset.settingsTab;
+                settingsTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this.settingsModal.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
+                const target = document.getElementById('settings-tab-' + targetTab);
+                if (target) target.classList.add('active');
+            });
+        });
     }
 
     toggleSettings() {
@@ -2027,6 +2052,21 @@ class EntityInspector {
             this.settingWsMaxClients.textContent = cfg.websocket.maxClients || 10;
         }
 
+        // Debug feature toggles
+        if (cfg.debug) {
+            const d = cfg.debug;
+            this.settingDebugPositionTracking.checked = d.positionTracking !== false;
+            this.settingDebugEntityLifecycle.checked = d.entityLifecycle !== false;
+            this.settingDebugOnDemandRefresh.checked = d.onDemandRefresh !== false;
+            this.settingDebugAlarmInspection.checked = d.alarmInspection !== false;
+            this.settingDebugTimerInspection.checked = d.timerInspection !== false;
+            this.settingDebugInstructionInspection.checked = d.instructionInspection !== false;
+            this.settingDebugLazyExpansion.checked = d.lazyExpansion !== false;
+            this.settingDebugAssetBrowser.checked = d.assetBrowser !== false;
+            this.settingDebugPatchManagement.checked = d.patchManagement !== false;
+            this.settingDebugEntityActions.checked = d.entityActions !== false;
+        }
+
         // Local settings (not sent to server)
         if (this.settingPauseOnExpand) {
             this.settingPauseOnExpand.checked = this.pauseOnExpand;
@@ -2046,7 +2086,17 @@ class EntityInspector {
             packetLogExcluded: this.settingPacketExcluded.value
                 .split(',')
                 .map(s => s.trim())
-                .filter(s => s)
+                .filter(s => s),
+            'debug.positionTracking': this.settingDebugPositionTracking.checked,
+            'debug.entityLifecycle': this.settingDebugEntityLifecycle.checked,
+            'debug.onDemandRefresh': this.settingDebugOnDemandRefresh.checked,
+            'debug.alarmInspection': this.settingDebugAlarmInspection.checked,
+            'debug.timerInspection': this.settingDebugTimerInspection.checked,
+            'debug.instructionInspection': this.settingDebugInstructionInspection.checked,
+            'debug.lazyExpansion': this.settingDebugLazyExpansion.checked,
+            'debug.assetBrowser': this.settingDebugAssetBrowser.checked,
+            'debug.patchManagement': this.settingDebugPatchManagement.checked,
+            'debug.entityActions': this.settingDebugEntityActions.checked
         };
 
         // Save local settings

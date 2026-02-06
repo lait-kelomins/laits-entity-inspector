@@ -15,6 +15,8 @@ import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -232,6 +234,47 @@ public class InspectorCore implements DataTransportListener {
         return collector;
     }
 
+    /**
+     * Refresh a single entity's data on-demand by collecting it from the world thread.
+     * This avoids the periodic polling that was causing alarm resets.
+     *
+     * @param entityId The entity ID to refresh
+     * @return Fresh EntitySnapshot, or cached snapshot if refresh fails
+     */
+    public EntitySnapshot refreshEntity(long entityId) {
+        if (!config.getDebug().isOnDemandRefresh()) {
+            return cache.getEntitySnapshot(entityId);
+        }
+
+        World world = currentWorld;
+        if (world == null) {
+            return cache.getEntitySnapshot(entityId);
+        }
+
+        CompletableFuture<EntitySnapshot> future = new CompletableFuture<>();
+        world.execute(() -> {
+            try {
+                EntityDataCollector.CollectionResult result = collector.collectEntityById(entityId, world);
+                if (result != null && result.snapshot() != null) {
+                    cache.putEntity(entityId, result.snapshot(), result.componentRefs());
+                    future.complete(result.snapshot());
+                } else {
+                    future.complete(cache.getEntitySnapshot(entityId));
+                }
+            } catch (Exception e) {
+                LOGGER.atWarning().log("Failed to refresh entity %d: %s", entityId, e.getMessage());
+                future.complete(cache.getEntitySnapshot(entityId));
+            }
+        });
+
+        try {
+            return future.get(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Timeout refreshing entity %d, returning cached data", entityId);
+            return cache.getEntitySnapshot(entityId);
+        }
+    }
+
     // State management
 
     public boolean isEnabled() {
@@ -292,7 +335,7 @@ public class InspectorCore implements DataTransportListener {
      * Must be called from world thread.
      */
     public void onEntitySpawn(EntitySnapshot snapshot, Map<String, Object> componentObjects) {
-        if (!shouldProcess() || snapshot == null) {
+        if (!shouldProcess() || snapshot == null || !config.getDebug().isEntityLifecycle()) {
             return;
         }
 
@@ -305,7 +348,7 @@ public class InspectorCore implements DataTransportListener {
      * Must be called from world thread.
      */
     public void onEntityDespawn(long entityId, String uuid) {
-        if (!shouldProcess()) {
+        if (!shouldProcess() || !config.getDebug().isEntityLifecycle()) {
             return;
         }
 
@@ -499,6 +542,9 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public Object onRequestExpand(long entityId, String path) {
+        if (!config.getDebug().isLazyExpansion()) {
+            return null;
+        }
         LOGGER.atInfo().log("Expand request: entityId=%d, path=%s", entityId, path);
         Object result = cache.expandEntityPath(entityId, path);
         LOGGER.atInfo().log("Expand result: %s", result != null ? "success" : "null");
@@ -510,6 +556,9 @@ public class InspectorCore implements DataTransportListener {
      */
     @Override
     public Object onRequestPacketExpand(long packetId, String path) {
+        if (!config.getDebug().isLazyExpansion()) {
+            return null;
+        }
         LOGGER.atInfo().log("Packet expand request: packetId=%d, path=%s", packetId, path);
         Object result = cache.expandPacketPath(packetId, path);
         LOGGER.atInfo().log("Packet expand result: %s", result != null ? "success" : "null");
@@ -542,6 +591,17 @@ public class InspectorCore implements DataTransportListener {
                     );
                 }
             }
+
+            case "debug.positionTracking" -> config.getDebug().setPositionTracking((Boolean) value);
+            case "debug.entityLifecycle" -> config.getDebug().setEntityLifecycle((Boolean) value);
+            case "debug.onDemandRefresh" -> config.getDebug().setOnDemandRefresh((Boolean) value);
+            case "debug.alarmInspection" -> config.getDebug().setAlarmInspection((Boolean) value);
+            case "debug.timerInspection" -> config.getDebug().setTimerInspection((Boolean) value);
+            case "debug.instructionInspection" -> config.getDebug().setInstructionInspection((Boolean) value);
+            case "debug.lazyExpansion" -> config.getDebug().setLazyExpansion((Boolean) value);
+            case "debug.assetBrowser" -> config.getDebug().setAssetBrowser((Boolean) value);
+            case "debug.patchManagement" -> config.getDebug().setPatchManagement((Boolean) value);
+            case "debug.entityActions" -> config.getDebug().setEntityActions((Boolean) value);
 
             default -> LOGGER.atWarning().log("Unknown config key: %s", key);
         }
@@ -588,32 +648,50 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public List<AssetCategory> getAssetCategories() {
+        if (!config.getDebug().isAssetBrowser()) {
+            return Collections.emptyList();
+        }
         return assetCollector.getCategories();
     }
 
     @Override
     public List<AssetEntry> getAssets(String category, String filter) {
+        if (!config.getDebug().isAssetBrowser()) {
+            return Collections.emptyList();
+        }
         return assetCollector.getAssets(category, filter);
     }
 
     @Override
     public AssetDetail getAssetDetail(String category, String assetId) {
+        if (!config.getDebug().isAssetBrowser()) {
+            return null;
+        }
         return assetCollector.getAssetDetail(category, assetId);
     }
 
     @Override
     public List<AssetEntry> searchAssets(String query) {
+        if (!config.getDebug().isAssetBrowser()) {
+            return Collections.emptyList();
+        }
         return assetCollector.searchAllAssets(query);
     }
 
     @Override
     public Object onRequestAssetExpand(String category, String assetId, String path) {
+        if (!config.getDebug().isAssetBrowser()) {
+            return null;
+        }
         // TODO: Implement asset field expansion
         return null;
     }
 
     @Override
     public void refreshAssets() {
+        if (!config.getDebug().isAssetBrowser()) {
+            return;
+        }
         LOGGER.atInfo().log("Refreshing assets (immediate)...");
         assetCollector.refresh();
         // Broadcast refresh complete to all clients
@@ -636,17 +714,26 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public List<String> testWildcard(String wildcardPath) {
+        if (!config.getDebug().isAssetBrowser()) {
+            return Collections.emptyList();
+        }
         return assetCollector.testWildcard(wildcardPath);
     }
 
     @Override
     public String generatePatch(String baseAssetPath, Map<String, Object> original,
                                  Map<String, Object> modified, String operation) {
+        if (!config.getDebug().isPatchManagement()) {
+            return "Patch management is disabled via debug config";
+        }
         return patchManager.generatePatchFromDiff(baseAssetPath, original, modified, operation);
     }
 
     @Override
     public String saveDraft(String filename, String patchJson) {
+        if (!config.getDebug().isPatchManagement()) {
+            return "Patch management is disabled via debug config";
+        }
         try {
             patchManager.saveDraft(filename, patchJson);
 
@@ -662,6 +749,9 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public String publishPatch(String filename, String patchJson) {
+        if (!config.getDebug().isPatchManagement()) {
+            return "Patch management is disabled via debug config";
+        }
         LOGGER.atInfo().log("Publishing patch: %s", filename);
         try {
             patchManager.publishPatch(filename, patchJson);
@@ -687,11 +777,17 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public List<PatchDraft> listDrafts() {
+        if (!config.getDebug().isPatchManagement()) {
+            return Collections.emptyList();
+        }
         return patchManager.listDrafts();
     }
 
     @Override
     public String deletePatch(String filename) {
+        if (!config.getDebug().isPatchManagement()) {
+            return "Patch management is disabled via debug config";
+        }
         try {
             patchManager.deletePatch(filename);
             LOGGER.atInfo().log("Deleted patch: %s", filename);
@@ -704,16 +800,25 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public List<String> listPublishedPatches() {
+        if (!config.getDebug().isPatchManagement()) {
+            return Collections.emptyList();
+        }
         return patchManager.listPublishedPatches();
     }
 
     @Override
     public List<PatchManager.PatchInfo> listPublishedPatchesWithContent() {
+        if (!config.getDebug().isPatchManagement()) {
+            return Collections.emptyList();
+        }
         return patchManager.listPublishedPatchesWithContent();
     }
 
     @Override
     public List<PatchManager.ExternalPatchInfo> listAllPatchesAcrossMods() {
+        if (!config.getDebug().isPatchManagement()) {
+            return Collections.emptyList();
+        }
         return patchManager.listAllPatchesAcrossMods();
     }
 
@@ -791,16 +896,25 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public EntitySnapshot onRequestEntityDetail(long entityId) {
+        refreshEntity(entityId);
         return entityQueryService.getEntityDetail(entityId);
     }
 
     @Override
     public List<TimerInfo> onRequestEntityTimers(long entityId) {
+        if (!config.getDebug().isTimerInspection()) {
+            return Collections.emptyList();
+        }
+        refreshEntity(entityId);
         return entityQueryService.getTimers(entityId);
     }
 
     @Override
     public Map<String, AlarmInfo> onRequestEntityAlarms(long entityId) {
+        if (!config.getDebug().isAlarmInspection()) {
+            return Collections.emptyMap();
+        }
+        refreshEntity(entityId);
         return entityQueryService.getAlarms(entityId);
     }
 
@@ -820,6 +934,10 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public com.laits.inspector.data.InstructionData.InstructionTreeData onRequestEntityInstructions(long entityId) {
+        if (!config.getDebug().isInstructionInspection()) {
+            return null;
+        }
+        refreshEntity(entityId);
         return entityQueryService.getInstructions(entityId);
     }
 
@@ -829,6 +947,9 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public String setEntitySurname(long entityId, String surname) {
+        if (!config.getDebug().isEntityActions()) {
+            return "Entity actions are disabled via debug config";
+        }
         World world = currentWorld;
         if (world == null) {
             return "No world available";
@@ -913,6 +1034,9 @@ public class InspectorCore implements DataTransportListener {
 
     @Override
     public String teleportToEntity(long entityId) {
+        if (!config.getDebug().isEntityActions()) {
+            return "Entity actions are disabled via debug config";
+        }
         World world = currentWorld;
         if (world == null) {
             LOGGER.atWarning().log("Teleport failed: No world available");
