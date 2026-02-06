@@ -1,14 +1,14 @@
+# **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
+
 # Lait's Entity Inspector
 
-![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1499/614/entityinspector-screen-png.png)
-
-> **Warning**: This is an experimental debugging tool intended for local development servers only. Do not use on production or public servers. Use at your own risk.
+![Entity Inspector Screenshot](https://media.forgecdn.net/attachments/1506/321/lei-standard-png.png)
 
 Real-time entity debugging tools for Hytale modding.
 
 ---
 
-## What's New in v1.5.0
+## What's New in v0.1.5
 
 **Live Instruction Inspector** - A new Instructions tab in the component inspector shows the full instruction tree for any NPC entity. See which Instructions and InteractionInstructions are triggered, with a live event log feed of every sensor evaluation and action execution in real time.
 
@@ -151,11 +151,9 @@ Output: `build/libs/laits-entity-inspector-<version>.jar`
 
 ## Screenshots
 
-### Entity List with Filters
-![Entity List](https://media.forgecdn.net/attachments/description/1446511/description_9abe1583-d693-41e3-b3db-581e7f2269c8.png)
-
-### Component Inspector
-![Component Inspector](https://media.forgecdn.net/attachments/description/1446511/description_403c2744-f014-40e1-ad00-0be97269a6bc.png)
+![Entity List](https://media.forgecdn.net/attachments/1506/323/lei-assets-png.png)
+![Component Inspector](https://media.forgecdn.net/attachments/1506/324/lei-patch-png.png)
+![Alarms](https://media.forgecdn.net/attachments/1506/325/lei-alarms-png.png)
 
 ---
 
