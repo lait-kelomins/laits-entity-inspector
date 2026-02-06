@@ -129,6 +129,19 @@ public class InMemoryCache implements InspectorCache {
     }
 
     @Override
+    public Object getLiveComponent(long entityId, String componentName) {
+        Map<String, WeakReference<Object>> refs = componentRefs.get(entityId);
+        if (refs == null) {
+            return null;
+        }
+        WeakReference<Object> ref = refs.get(componentName);
+        if (ref == null) {
+            return null;
+        }
+        return ref.get(); // May return null if GC'd
+    }
+
+    @Override
     public void removeEntity(long entityId) {
         synchronized (entityLock) {
             entitySnapshots.remove(entityId);

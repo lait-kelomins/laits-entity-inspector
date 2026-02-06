@@ -8,6 +8,9 @@ import com.google.gson.JsonParser;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.laits.inspector.data.asset.PatchDraft;
 
+import com.hypixel.hytale.assetstore.AssetPack;
+import com.hypixel.hytale.server.core.asset.AssetModule;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -529,6 +532,17 @@ public class PatchManager {
     public record PatchInfo(String filename, String content, long modifiedTime) {}
 
     /**
+     * Info about a patch from any mod, including whether it's editable.
+     */
+    public record ExternalPatchInfo(
+        String filename,
+        String content,
+        long modifiedTime,
+        String sourceMod,
+        boolean isEditable
+    ) {}
+
+    /**
      * List all published patches with their content.
      * Used to populate history on client connection.
      */
@@ -557,6 +571,59 @@ public class PatchManager {
             LOGGER.atWarning().log("Failed to list patches: %s", e.getMessage());
             return java.util.Collections.emptyList();
         }
+    }
+
+    /**
+     * List all patches across all asset packs, including other mods.
+     * Patches from our mod are marked as editable, others as readonly.
+     */
+    public List<ExternalPatchInfo> listAllPatchesAcrossMods() {
+        List<ExternalPatchInfo> allPatches = new ArrayList<>();
+
+        try {
+            List<AssetPack> packs = AssetModule.get().getAssetPacks();
+
+            for (AssetPack pack : packs) {
+                Path patchDir = pack.getRoot().resolve("Server").resolve("Patch");
+                if (!Files.exists(patchDir)) {
+                    continue;
+                }
+
+                // Check if this is our own asset pack (the one we can edit)
+                boolean isOurPack = patchDirectory != null &&
+                    patchDir.toAbsolutePath().equals(patchDirectory.toAbsolutePath());
+
+                try (Stream<Path> files = Files.list(patchDir)) {
+                    files.filter(p -> p.toString().endsWith(".json"))
+                        .forEach(p -> {
+                            try {
+                                String content = Files.readString(p, StandardCharsets.UTF_8);
+                                long modifiedTime = Files.getLastModifiedTime(p).toMillis();
+                                allPatches.add(new ExternalPatchInfo(
+                                    p.getFileName().toString(),
+                                    content,
+                                    modifiedTime,
+                                    pack.getName(),
+                                    isOurPack
+                                ));
+                            } catch (IOException e) {
+                                LOGGER.atWarning().log("Failed to read patch %s from %s: %s",
+                                    p.getFileName(), pack.getName(), e.getMessage());
+                            }
+                        });
+                } catch (IOException e) {
+                    LOGGER.atWarning().log("Failed to list patches in %s: %s",
+                        pack.getName(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to list patches across mods: %s", e.getMessage());
+        }
+
+        // Sort by modification time, newest first
+        allPatches.sort((a, b) -> Long.compare(b.modifiedTime(), a.modifiedTime()));
+
+        return allPatches;
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -38,7 +38,7 @@ public class EntityLifecycleSystem extends HolderSystem<EntityStore> {
     @Override
     public void onEntityAdd(@Nonnull Holder<EntityStore> holder, @Nonnull AddReason reason,
                             @Nonnull Store<EntityStore> store) {
-        if (!core.isEnabled()) {
+        if (!core.isEnabled() || !core.getConfig().getDebug().isEntityLifecycle()) {
             return;
         }
 
@@ -56,7 +56,7 @@ public class EntityLifecycleSystem extends HolderSystem<EntityStore> {
     @Override
     public void onEntityRemoved(@Nonnull Holder<EntityStore> holder, @Nonnull RemoveReason reason,
                                 @Nonnull Store<EntityStore> store) {
-        if (!core.isEnabled()) {
+        if (!core.isEnabled() || !core.getConfig().getDebug().isEntityLifecycle()) {
             return;
         }
 

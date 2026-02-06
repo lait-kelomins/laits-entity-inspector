@@ -41,6 +41,16 @@ public interface InspectorCache {
     Object expandEntityPath(long entityId, String path);
 
     /**
+     * Get a live component object reference from the cache.
+     * Used for accessing live game objects (e.g., NPCEntity) beyond serialized snapshots.
+     *
+     * @param entityId      The entity ID
+     * @param componentName The component name (e.g., "NPCEntity")
+     * @return The live component object, or null if not found / GC'd
+     */
+    Object getLiveComponent(long entityId, String componentName);
+
+    /**
      * Remove an entity from the cache.
      */
     void removeEntity(long entityId);
