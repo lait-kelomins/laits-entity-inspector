@@ -8,6 +8,35 @@ Real-time entity debugging tools for Hytale modding.
 
 ---
 
+## What's New in v1.5.0
+
+**Live Instruction Inspector** - A new Instructions tab in the component inspector shows the full instruction tree for any NPC entity. See which Instructions and InteractionInstructions are triggered, with a live event log feed of every sensor evaluation and action execution in real time.
+
+- **Rename nodes** - Right-click any instruction row (or click the Rename text) to give it a custom name. Custom names show up in the event log and are applied per entity type, so all Sheep share the same labels. Persists across sessions.
+- **Collapse/expand** - Click to collapse or expand instruction nodes. Alt+click to collapse or expand all sub-nodes at once.
+- **Resizable event log** - Drag the handle between the instruction tree and event log to resize. Size is persisted.
+- **Fullscreen mode** - Expand the component/instruction inspector to fill the entire viewport.
+- **Font scaling** - Adjust instruction text size from 90% to 150% with a slider. Persisted.
+
+**Debug Feature Toggles** - A new Debug tab in Settings lets you enable/disable individual inspector subsystems at runtime. Useful for isolating side effects during debugging or reducing overhead when you only need specific features.
+
+| Toggle | What it controls |
+|--------|-----------------|
+| Position Tracking | Entity position polling each tick |
+| Entity Lifecycle | Spawn/despawn event processing |
+| On-Demand Refresh | Fresh data fetch before detail queries |
+| Alarm Inspection | `inspector_get_entity_alarms` |
+| Timer Inspection | `inspector_get_entity_timers` |
+| Instruction Inspection | `inspector_get_entity_instructions` |
+| Lazy Expansion | Field expansion requests |
+| Asset Browser | Asset scanning and browsing |
+| Patch Management | Hytalor patch publish/draft/delete |
+| Entity Actions | Surname changes, teleport |
+
+All toggles default to **on** and persist to the config file.
+
+---
+
 ## Installation
 
 1. Clone the repo and run `laits-entity-inspector-gui/update.ps1` (Windows) or `update.sh` (Linux/Mac)
