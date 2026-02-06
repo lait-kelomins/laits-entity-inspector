@@ -78,7 +78,7 @@ public class EntityUpdateSystem extends EntityTickingSystem<EntityStore> {
     @Override
     public void tick(float dt, int index, @Nonnull ArchetypeChunk<EntityStore> chunk,
                      @Nonnull Store<EntityStore> store, @Nonnull CommandBuffer<EntityStore> commandBuffer) {
-        if (!core.isEnabled() || core.isPaused()) {
+        if (!core.isEnabled() || core.isPaused() || !core.getConfig().getDebug().isPositionTracking()) {
             return;
         }
 
