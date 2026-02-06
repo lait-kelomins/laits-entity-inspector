@@ -16,6 +16,7 @@ public class EntityQueryService {
     private final InspectorCache cache;
     private final InstructionSerializer instructionSerializer = new InstructionSerializer();
     private Supplier<Long> gameTimeSupplier;
+    private Supplier<Double> gameTimeRateSupplier;
 
     public EntityQueryService(InspectorCache cache) {
         this.cache = cache;
@@ -30,10 +31,28 @@ public class EntityQueryService {
     }
 
     /**
+     * Set the game time rate supplier (game seconds per real second).
+     * Used to convert game-time remaining into real-world seconds.
+     */
+    public void setGameTimeRateSupplier(Supplier<Double> supplier) {
+        this.gameTimeRateSupplier = supplier;
+    }
+
+    /**
      * Get current game time in epoch millis, or null if unavailable.
      */
     private Long getCurrentGameTimeMillis() {
         return gameTimeSupplier != null ? gameTimeSupplier.get() : null;
+    }
+
+    /**
+     * Convert game-time seconds to real-world seconds using the game time rate.
+     */
+    private double toRealSeconds(double gameSeconds) {
+        if (gameTimeRateSupplier == null) return gameSeconds;
+        Double rate = gameTimeRateSupplier.get();
+        if (rate == null || rate <= 0) return gameSeconds;
+        return gameSeconds / rate;
     }
 
     /**
@@ -467,7 +486,7 @@ public class EntityQueryService {
                 // Calculate remaining using game time, not wall-clock time
                 if (currentGameTimeMs != null) {
                     long remainingMs = scheduledMs - currentGameTimeMs;
-                    remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+                    remainingSeconds = remainingMs > 0 ? toRealSeconds(remainingMs / 1000.0) : 0.0;
                 }
             }
         } else if (alarmInstant instanceof Number n) {
@@ -476,7 +495,7 @@ public class EntityQueryService {
 
             if (currentGameTimeMs != null) {
                 long remainingMs = scheduledMs - currentGameTimeMs;
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+                remainingSeconds = remainingMs > 0 ? toRealSeconds(remainingMs / 1000.0) : 0.0;
             }
         }
 
@@ -488,7 +507,7 @@ public class EntityQueryService {
 
             if (currentGameTimeMs != null) {
                 long remainingMs = scheduledMs - currentGameTimeMs;
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+                remainingSeconds = remainingMs > 0 ? toRealSeconds(remainingMs / 1000.0) : 0.0;
             }
         }
 
@@ -510,7 +529,7 @@ public class EntityQueryService {
             if (timestamp instanceof Number ts) {
                 long scheduledMs = ts.longValue();
                 long remainingMs = scheduledMs - System.currentTimeMillis();
-                remainingSeconds = remainingMs > 0 ? remainingMs / 1000.0 : 0.0;
+                remainingSeconds = remainingMs > 0 ? toRealSeconds(remainingMs / 1000.0) : 0.0;
                 if (scheduledTime == null) {
                     scheduledTime = Instant.ofEpochMilli(scheduledMs).toString();
                 }

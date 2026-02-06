@@ -72,6 +72,7 @@ public class InspectorCore implements DataTransportListener {
         // Initialize entity query service with game time supplier
         this.entityQueryService = new EntityQueryService(this.cache);
         this.entityQueryService.setGameTimeSupplier(this::getCurrentGameTimeEpochMilli);
+        this.entityQueryService.setGameTimeRateSupplier(this::getGameTimeRate);
     }
 
     /**
@@ -211,6 +212,11 @@ public class InspectorCore implements DataTransportListener {
      * For example, 72.0 means game time runs at 72x real time speed.
      * Returns null if world is not available.
      */
+    /**
+     * Get the game time rate (game seconds per real second).
+     * WorldTimeResource.getSecondsPerTick() returns game seconds per tick,
+     * so we multiply by TPS (30) to get game seconds per real second.
+     */
     public Double getGameTimeRate() {
         World world = currentWorld;
         if (world == null) {
@@ -218,7 +224,8 @@ public class InspectorCore implements DataTransportListener {
         }
 
         try {
-            return WorldTimeResource.getSecondsPerTick(world);
+            double secondsPerTick = WorldTimeResource.getSecondsPerTick(world);
+            return secondsPerTick * 30.0; // 30 TPS
         } catch (Exception e) {
             LOGGER.atWarning().log("Failed to get game time rate: %s", e.getMessage());
             return null;

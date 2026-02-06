@@ -20,3 +20,4 @@ Thumbs.db
 *.log
 local.properties
 bump-version.ps1
+updater-config.json

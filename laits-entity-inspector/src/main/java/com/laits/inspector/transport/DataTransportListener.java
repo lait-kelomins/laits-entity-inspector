@@ -1,5 +1,6 @@
 package com.laits.inspector.transport;
 
+import com.hypixel.hytale.server.npc.NPCPlugin;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
