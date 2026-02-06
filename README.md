@@ -8,7 +8,7 @@ Real-time entity debugging tools for Hytale modding.
 
 ---
 
-## What's New in v1.5.0
+## What's New in v0.1.5
 
 **Live Instruction Inspector** - A new Instructions tab in the component inspector shows the full instruction tree for any NPC entity. See which Instructions and InteractionInstructions are triggered, with a live event log feed of every sensor evaluation and action execution in real time.
 

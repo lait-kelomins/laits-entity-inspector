@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.5.0 - Debug Feature Toggles
+## v0.1.5 - Debug Feature Toggles
 
 ### Added
 - **Debug Settings Tab** - New "Debug" tab in settings modal with toggles for every inspector subsystem
