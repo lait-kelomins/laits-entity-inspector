@@ -5094,3 +5094,383 @@ body {
     margin: 10px 0;
     font-size: 11px;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   JSON PATCH PREVIEW TAB
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Edit button in asset detail header */
+.edit-btn {
+    background: var(--info);
+    color: var(--black);
+    border: 1px solid var(--info);
+    padding: 4px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.edit-btn:hover {
+    filter: brightness(1.2);
+}
+
+.edit-btn.hidden {
+    display: none;
+}
+
+/* 3-column layout */
+.json-edit-layout {
+    display: flex;
+    flex: 1;
+    gap: 8px;
+    padding: 8px;
+    min-height: 0;
+}
+
+/* JSON Viewer panels (equal width) */
+.json-viewer-panel,
+.json-preview-panel {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.json-edit-asset-label {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--gray);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.json-viewer-content {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text);
+    background: var(--darker);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Right: Patch Editor (equal width) */
+.json-patch-panel {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.json-patch-editor-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.json-patch-editor-container .CodeMirror {
+    flex: 1;
+    height: auto;
+    font-size: 12px;
+    background: var(--darker);
+    color: var(--text);
+}
+
+.json-patch-editor-container textarea {
+    flex: 1;
+    width: 100%;
+    background: var(--darker);
+    color: var(--text);
+    border: none;
+    padding: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    resize: none;
+    outline: none;
+}
+
+/* ── JSON Tree Viewer ─────────────────────────────── */
+
+.jt-line {
+    white-space: nowrap;
+    line-height: 1.5;
+    font-size: 12px;
+}
+
+.jt-tog {
+    display: inline-block;
+    width: 14px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-dim);
+    text-align: center;
+}
+
+.jt-tog:hover {
+    color: var(--accent);
+}
+
+.jt-key {
+    color: var(--text-highlight);
+}
+
+.jt-val.jt-str { color: var(--success); }
+.jt-val.jt-num { color: var(--info); }
+.jt-val.jt-bool { color: var(--warning); }
+.jt-val.jt-null { color: var(--text-dim); font-style: italic; }
+
+.jt-brace {
+    color: var(--text-dim);
+}
+
+.jt-hint {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.jt-node.jt-closed > .jt-body { display: none; }
+.jt-node.jt-closed > .jt-close { display: none; }
+.jt-node:not(.jt-closed) .jt-line > .jt-hint { display: none; }
+.jt-node.jt-closed > .jt-line > .jt-hint { display: inline; }
+
+.jt-diff {
+    background: rgba(0, 204, 102, 0.12);
+    border-left: 2px solid var(--success);
+    margin-left: -2px;
+}
+
+.jt-diff .jt-val {
+    color: var(--accent-bright);
+    font-weight: bold;
+}
+
+/* Status indicator */
+.json-edit-status {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.json-edit-status.success {
+    color: var(--success);
+}
+
+.json-edit-status.error {
+    color: var(--error);
+}
+
+.json-edit-status.loading {
+    color: var(--warning);
+}
+
+/* Diagram Panel (disabled, kept for future use) */
+.json-diagram-panel {
+    flex: 2;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+}
+
+.json-diagram-container {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+}
+
+.json-crack-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #1e1e1e;
+}
+
+/* Setup overlay */
+.diagram-setup {
+    position: absolute;
+    inset: 0;
+    background: var(--darker);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+}
+
+.diagram-setup.hidden {
+    display: none;
+}
+
+.diagram-setup-content {
+    max-width: 480px;
+    padding: 24px;
+    text-align: left;
+}
+
+.diagram-setup-content h3 {
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.diagram-setup-content p {
+    color: var(--text);
+    margin-bottom: 16px;
+    font-size: 12px;
+}
+
+.diagram-warning {
+    background: rgba(255, 204, 0, 0.1);
+    border-left: 3px solid var(--warning);
+    padding: 8px 10px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.5;
+}
+
+.diagram-warning strong {
+    color: var(--warning);
+}
+
+.setup-option {
+    margin-bottom: 14px;
+}
+
+.setup-option strong {
+    display: block;
+    color: var(--text-bright);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.setup-option code {
+    display: block;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--text-highlight);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.setup-hint {
+    display: block;
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+.diagram-connect-bar {
+    display: flex;
+    gap: 6px;
+    margin-top: 16px;
+}
+
+.diagram-url-input {
+    flex: 1;
+    background: var(--gray-dark);
+    border: 1px solid var(--gray);
+    color: var(--text-highlight);
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+}
+
+.diagram-url-input:focus {
+    border-color: var(--accent);
+}
+
+.diagram-connect-btn {
+    background: var(--accent);
+    color: var(--black);
+    border: 1px solid var(--accent);
+    padding: 6px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.diagram-connect-btn:hover {
+    filter: brightness(1.2);
+}
+
+.diagram-connect-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.diagram-connect-status {
+    font-size: 11px;
+    margin-top: 6px;
+    min-height: 16px;
+}
+
+.diagram-connect-status.error {
+    color: var(--error);
+}
+
+.diagram-connect-status.success {
+    color: var(--success);
+}
+
+/* CodeMirror theming for JSON Edit patch editor - inherit from .json-editor-container */
+.json-patch-editor-container .CodeMirror {
+    background: transparent !important;
+    color: var(--text-highlight) !important;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    height: 100%;
+}
+
+.json-patch-editor-container .CodeMirror-scroll {
+    overflow: auto !important;
+}
+
+.json-patch-editor-container .CodeMirror-gutters {
+    background: var(--gray-dark) !important;
+    border-right: 1px solid var(--gray) !important;
+}
+
+.json-patch-editor-container .CodeMirror-cursor {
+    border-left: 2px solid var(--accent) !important;
+}
+
+.json-patch-editor-container .CodeMirror-selected {
+    background: rgba(102, 170, 255, 0.15) !important;
+}
+
+.json-patch-editor-container .CodeMirror-matchingbracket {
+    color: var(--accent-bright) !important;
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.json-patch-editor-container .CodeMirror .cm-string,
+.json-patch-editor-container .CodeMirror .cm-string-2 {
+    color: var(--success) !important;
+}
+
+.json-patch-editor-container .CodeMirror .cm-number {
+    color: var(--info) !important;
+}
+
+.json-patch-editor-container .CodeMirror .cm-atom {
+    color: var(--warning) !important;
+}
+
+.json-patch-editor-container .CodeMirror .cm-property {
+    color: var(--text-highlight) !important;
+}

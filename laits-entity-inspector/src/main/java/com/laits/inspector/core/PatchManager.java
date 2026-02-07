@@ -680,10 +680,15 @@ public class PatchManager {
             String baseAssetJson = GSON.toJson(baseJson);
 
             // Get ordered patches - returns List<PatchObject> where PatchObject has patch() and path()
-            @SuppressWarnings("unchecked")
-            List<Object> patchObjects = (List<Object>)
-                hytalorPm.getClass().getMethod("getPatches", String.class).invoke(hytalorPm, hytalorPath);
-            if (patchObjects == null) {
+            // Hytalor's getPatches throws NPE internally when no patches exist, so handle gracefully
+            List<Object> patchObjects;
+            try {
+                @SuppressWarnings("unchecked")
+                List<Object> result = (List<Object>)
+                    hytalorPm.getClass().getMethod("getPatches", String.class).invoke(hytalorPm, hytalorPath);
+                patchObjects = result != null ? result : Collections.emptyList();
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                // Hytalor throws when no patches exist - treat as empty
                 patchObjects = Collections.emptyList();
             }
 
@@ -737,7 +742,33 @@ public class PatchManager {
 
         } catch (Exception e) {
             LOGGER.atWarning().log("Failed to build patch timeline for %s: %s", assetId, e.getMessage());
-            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Fetch the unpatched base asset JSON for an asset ID.
+     * Reuses the same Hytalor resolution logic as getAssetPatchTimeline.
+     */
+    private JsonObject getBaseAssetJson(String assetId, AssetCollector assetCollector) {
+        try {
+            String hytalorPath = assetCollector.resolveHytalorBasePath(assetId);
+            if (hytalorPath == null) return null;
+
+            Object hytalorPm = getHytalorPatchManager();
+            if (hytalorPm == null) return null;
+
+            @SuppressWarnings("unchecked")
+            List<Map.Entry<String, Path>> baseEntries = (List<Map.Entry<String, Path>>)
+                hytalorPm.getClass().getMethod("getBaseAssets", String.class).invoke(hytalorPm, hytalorPath);
+            if (baseEntries == null || baseEntries.isEmpty()) return null;
+
+            Path baseAssetFile = baseEntries.get(0).getValue();
+            if (!Files.exists(baseAssetFile)) return null;
+
+            return readJsonFromPath(baseAssetFile);
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to get base asset JSON for %s: %s", assetId, e.getMessage());
             return null;
         }
     }
@@ -752,14 +783,20 @@ public class PatchManager {
      */
     public String computeMergePreview(String assetId, String patchJson, AssetCollector assetCollector) {
         try {
+            // Try timeline first (includes all existing patches applied)
             PatchTimeline timeline = getAssetPatchTimeline(assetId, assetCollector);
-            if (timeline == null) {
-                return null;
-            }
 
-            // Parse the final state and the new patch
-            JsonObject finalState = JsonParser.parseString(timeline.finalState()).getAsJsonObject();
-            JsonObject stateCopy = deepCopy(finalState);
+            JsonObject stateCopy;
+            if (timeline != null) {
+                stateCopy = deepCopy(JsonParser.parseString(timeline.finalState()).getAsJsonObject());
+            } else {
+                // No existing patches - fall back to base asset directly
+                stateCopy = getBaseAssetJson(assetId, assetCollector);
+                if (stateCopy == null) {
+                    LOGGER.atWarning().log("Cannot resolve base asset for merge preview: %s", assetId);
+                    return null;
+                }
+            }
 
             JsonObject newPatch = JsonParser.parseString(patchJson).getAsJsonObject();
             JsonObject patchForMerge = deepCopy(newPatch);

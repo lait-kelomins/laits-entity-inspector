@@ -65,6 +65,7 @@
             <button class="tab-btn active" data-tab="entities">[E] ENTITIES</button>
             <button class="tab-btn" data-tab="assets">[A] ASSETS</button>
             <button class="tab-btn" data-tab="alarms">[⏰] ALARMS</button>
+            <button class="tab-btn" data-tab="json-edit">[J] JSON PATCH PREVIEW</button>
         </div>
 
 
@@ -183,7 +184,8 @@
                         <span class="header-spacer"></span>
                         <button class="refresh-asset-btn hidden" id="refresh-asset-btn" title="Refresh Asset">↻</button>
                         <button class="timeline-btn hidden" id="timeline-btn" title="Patch Timeline">TIMELINE</button>
-                        <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
+                        <button class="patch-btn hidden" id="patch-btn" title="Create Patch (Will deprecate)">PATCH (WILL DEPRECATE)</button>
+                        <button class="edit-btn hidden" id="edit-btn" title="Patch Preview">PATCH PREVIEW</button>
                         <button class="info-btn" data-info="asset-detail" title="Asset Detail Help">i</button>
                     </div>
                     <div class="asset-detail" id="asset-detail">
@@ -204,6 +206,40 @@
                 </aside>
             </div>
         </div><!-- /tab-assets -->
+
+        <!-- Tab Content: JSON Patch Preview -->
+        <div class="tab-content" id="tab-json-edit">
+            <div class="json-edit-layout">
+                <!-- Left: Current JSON Viewer -->
+                <section class="panel json-viewer-panel">
+                    <div class="panel-header">
+                        <span class="panel-title">┌─[ CURRENT ]─┐</span>
+                    </div>
+                    <div class="json-edit-asset-label" id="json-edit-asset-label">No asset loaded</div>
+                    <pre class="json-viewer-content" id="json-viewer-content">Select an asset and click EDIT to begin</pre>
+                </section>
+
+                <!-- Middle: Preview Viewer -->
+                <section class="panel json-preview-panel">
+                    <div class="panel-header">
+                        <span class="panel-title">┌─[ PREVIEW ]─┐</span>
+                        <span class="header-spacer"></span>
+                        <span class="json-edit-status" id="json-edit-status"></span>
+                    </div>
+                    <pre class="json-viewer-content" id="json-preview-content">Select an asset and click EDIT to begin</pre>
+                </section>
+
+                <!-- Right: Patch Editor -->
+                <section class="panel json-patch-panel">
+                    <div class="panel-header">
+                        <span class="panel-title">┌─[ PATCH EDITOR ]─┐</span>
+                    </div>
+                    <div class="json-patch-editor-container" id="json-patch-editor-container">
+                        <textarea id="json-edit-patch-textarea" spellcheck="false" placeholder='{"Health": 150, "Speed": 5}'></textarea>
+                    </div>
+                </section>
+            </div>
+        </div><!-- /tab-json-edit -->
 
         <!-- Tab Content: Alarms -->
         <div class="tab-content" id="tab-alarms">
@@ -319,6 +355,7 @@
                 <span class="footer-separator">|</span>
                 <span class="key">[E]</span> Entities
                 <span class="key">[A]</span> Assets
+                <span class="key">[J]</span> Json Patch Preview
                 <span class="key">[W]</span> Alarms
                 <span class="key">[P]</span> Packets
                 <span class="key">[S]</span> Settings

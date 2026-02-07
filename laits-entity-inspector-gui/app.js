@@ -4,7 +4,7 @@
  */
 
 // GUI Version - must match server mod version for compatibility
-const GUI_VERSION = '0.1.5';
+const GUI_VERSION = '0.1.6';
 const GITHUB_REPO = 'lait-kelomins/laits-entity-inspector';
 
 // Storage key prefix for localStorage
@@ -789,6 +789,22 @@ class EntityInspector {
         this.mergePreviewArrow = document.getElementById('merge-preview-arrow');
         this.mergePreviewContent = document.getElementById('merge-preview-content');
 
+        // JSON Edit tab elements
+        this.tabJsonEdit = document.getElementById('tab-json-edit');
+        this.jsonViewerContent = document.getElementById('json-viewer-content');
+        this.jsonPreviewContent = document.getElementById('json-preview-content');
+        this.jsonEditPatchTextarea = document.getElementById('json-edit-patch-textarea');
+        this.editBtn = document.getElementById('edit-btn');
+        this.jsonEditStatus = document.getElementById('json-edit-status');
+        this.jsonEditAssetLabel = document.getElementById('json-edit-asset-label');
+
+        // JSON Edit state
+        this.jsonEditAsset = null;
+        this.jsonEditCurrentJson = '';
+        this.jsonEditPreviewJson = '';
+        this._jsonEditMergeTimeout = null;
+        this._jsonEditMergePending = false;
+
         // Header elements
         this.headerEl = document.getElementById('header');
         this.headerLogoSection = document.getElementById('header-logo-section');
@@ -806,6 +822,7 @@ class EntityInspector {
         this.setupAssetBrowserListeners();
         this.setupPatchModalListeners();
         this.setupTimelineModalListeners();
+        this.setupJsonEditListeners();
         this.setupInfoPopovers();
         this.loadHeaderState();
         this.loadCachedConfig();  // Load settings from localStorage as fallback
@@ -5325,6 +5342,11 @@ class EntityInspector {
                     // Switch to Alarms/Watch tab
                     this.switchTab('alarms');
                     break;
+
+                case 'j':
+                    // Switch to JSON Edit tab
+                    this.switchTab('json-edit');
+                    break;
             }
         });
 
@@ -5410,6 +5432,14 @@ class EntityInspector {
         }
         if (this.tabAlarms) {
             this.tabAlarms.classList.toggle('active', tabName === 'alarms');
+        }
+        if (this.tabJsonEdit) {
+            this.tabJsonEdit.classList.toggle('active', tabName === 'json-edit');
+        }
+
+        // Refresh CodeMirror when entering JSON Edit tab
+        if (tabName === 'json-edit' && this.jsonEditPatchEditor) {
+            setTimeout(() => this.jsonEditPatchEditor.refresh(), 10);
         }
 
         // Request asset categories when switching to assets tab
@@ -6024,6 +6054,11 @@ class EntityInspector {
         // Show/hide refresh button based on whether an asset is selected
         if (this.refreshAssetBtn) {
             this.refreshAssetBtn.classList.toggle('hidden', !this.assetDetail);
+        }
+
+        // Show/hide Edit button based on whether an asset is selected
+        if (this.editBtn) {
+            this.editBtn.classList.toggle('hidden', !this.assetDetail);
         }
 
         if (!this.assetDetail) {
@@ -6741,6 +6776,12 @@ class EntityInspector {
     }
 
     handlePatchMergePreview(data) {
+        // Route to JSON Edit tab first (before early returns that guard patch modal elements)
+        if (this._jsonEditMergePending) {
+            this._jsonEditMergePending = false;
+            this.handleJsonEditMergePreview(data);
+        }
+
         if (data.error) {
             console.warn('Merge preview error:', data.error);
             this.hideMergePreview();
@@ -6938,6 +6979,370 @@ class EntityInspector {
                 }
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // JSON PATCH PREVIEW TAB
+    // ═══════════════════════════════════════════════════════════════
+
+    setupJsonEditListeners() {
+        // Edit button -> open JSON Edit with current asset
+        if (this.editBtn) {
+            this.editBtn.addEventListener('click', () => {
+                this.openJsonEditWithAsset();
+            });
+        }
+
+        // Initialize CodeMirror for patch textarea
+        if (this.jsonEditPatchTextarea && typeof CodeMirror !== 'undefined') {
+            const cmConfig = {
+                mode: { name: 'javascript', json: true },
+                theme: 'default',
+                lineNumbers: false,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                foldGutter: true,
+                gutters: ['CodeMirror-foldgutter'],
+                indentUnit: 2,
+                tabSize: 2,
+                indentWithTabs: false,
+                lineWrapping: false
+            };
+            this.jsonEditPatchEditor = CodeMirror.fromTextArea(this.jsonEditPatchTextarea, cmConfig);
+            this.jsonEditPatchEditor.on('change', () => {
+                this.onJsonEditPatchChange();
+            });
+        }
+
+        // Tree toggle handlers for both viewer panels
+        for (const container of [this.jsonViewerContent, this.jsonPreviewContent]) {
+            if (!container) continue;
+            container.addEventListener('click', (e) => {
+                const tog = e.target.closest('.jt-tog');
+                if (!tog) return;
+                const node = tog.closest('.jt-node');
+                if (!node) return;
+
+                if (e.altKey) {
+                    // Alt+click: toggle all descendants
+                    const closing = !node.classList.contains('jt-closed');
+                    const targets = [node, ...node.querySelectorAll('.jt-node')];
+                    for (const n of targets) {
+                        n.classList.toggle('jt-closed', closing);
+                        const t = n.querySelector(':scope > .jt-line > .jt-tog');
+                        if (t) t.textContent = closing ? '▶' : '▼';
+                    }
+                } else {
+                    node.classList.toggle('jt-closed');
+                    tog.textContent = node.classList.contains('jt-closed') ? '▶' : '▼';
+                }
+            });
+        }
+    }
+
+    openJsonEditWithAsset() {
+        if (!this.assetDetail) {
+            this.log('No asset selected', 'disconnect');
+            return;
+        }
+
+        this.jsonEditAsset = this.assetDetail;
+
+        const rawJson = this.assetDetail.rawJson || JSON.stringify(this.assetDetail.content, null, 2);
+        this.jsonEditCurrentJson = this.formatJson(rawJson);
+        this.jsonEditPreviewJson = '';
+        this._jsonEditScrollSynced = false;
+
+        if (this.jsonEditAssetLabel) {
+            this.jsonEditAssetLabel.textContent = `Asset: ${this.assetDetail.category}/${this.assetDetail.id}`;
+        }
+
+        if (this.jsonEditPatchEditor) {
+            this.jsonEditPatchEditor.setValue('');
+        }
+
+        if (this.jsonEditStatus) {
+            this.jsonEditStatus.textContent = '';
+            this.jsonEditStatus.className = 'json-edit-status';
+        }
+
+        this.switchTab('json-edit');
+        this.updateJsonEditViewers();
+    }
+
+    updateJsonEditViewers(scrollToDiff = false) {
+        const currentJson = this.jsonEditCurrentJson;
+        const previewJson = this.jsonEditPreviewJson;
+
+        // Compute diff paths for highlighting + auto-expand
+        let changedPaths = new Set();
+        let expandPaths = new Set(['']);
+        if (previewJson && currentJson) {
+            changedPaths = this._computeChangedPaths(currentJson, previewJson);
+            if (changedPaths.size > 0) {
+                expandPaths = this._getAncestorPaths(changedPaths);
+            }
+        }
+
+        // Left panel: current JSON tree (expand root + depth 1 by default)
+        if (this.jsonViewerContent) {
+            if (currentJson) {
+                const currentExpand = scrollToDiff && expandPaths.size > 1
+                    ? expandPaths
+                    : this._defaultExpandPaths(currentJson);
+                this.jsonViewerContent.innerHTML = this._renderJsonTree(currentJson, { expandPaths: currentExpand });
+            } else {
+                this.jsonViewerContent.textContent = 'No asset loaded';
+            }
+        }
+
+        // Middle panel: preview tree with diff highlights
+        if (this.jsonPreviewContent) {
+            const json = previewJson || currentJson;
+            if (json) {
+                const prevExpand = expandPaths.size > 1 ? expandPaths : this._defaultExpandPaths(json);
+                this.jsonPreviewContent.innerHTML = this._renderJsonTree(json, {
+                    changedPaths,
+                    expandPaths: prevExpand
+                });
+            } else {
+                this.jsonPreviewContent.textContent = 'No asset loaded';
+            }
+        }
+
+        // Scroll sync: first time only, scroll both panels to first diff
+        if (scrollToDiff && changedPaths.size > 0 && !this._jsonEditScrollSynced) {
+            this._jsonEditScrollSynced = true;
+            const firstPath = [...changedPaths][0];
+
+            requestAnimationFrame(() => {
+                const previewDiff = this.jsonPreviewContent?.querySelector('.jt-diff');
+                if (previewDiff) {
+                    previewDiff.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+                if (firstPath && this.jsonViewerContent) {
+                    const match = this.jsonViewerContent.querySelector(`[data-path="${CSS.escape(firstPath)}"]`);
+                    if (match) {
+                        const line = match.querySelector('.jt-line') || match;
+                        line.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
+                }
+            });
+        }
+    }
+
+    // ── JSON Tree Rendering ────────────────────────────────────
+
+    _renderJsonTree(jsonStr, options = {}) {
+        try {
+            const obj = JSON.parse(jsonStr);
+            return this._buildTreeNode(obj, null, 0, '', options, true);
+        } catch {
+            return `<div style="padding:8px">${escapeHtml(jsonStr)}</div>`;
+        }
+    }
+
+    _buildTreeNode(value, key, depth, path, options, isLast) {
+        const indent = depth * 14;
+        const comma = isLast ? '' : ',';
+        const diffCls = options.changedPaths?.has(path) ? ' jt-diff' : '';
+
+        // Primitives
+        if (value === null || typeof value !== 'object') {
+            let valHtml, valCls;
+            if (value === null) { valHtml = 'null'; valCls = 'jt-null'; }
+            else if (typeof value === 'boolean') { valHtml = String(value); valCls = 'jt-bool'; }
+            else if (typeof value === 'number') { valHtml = String(value); valCls = 'jt-num'; }
+            else { valHtml = escapeHtml(JSON.stringify(value)); valCls = 'jt-str'; }
+
+            const keyPart = key !== null && key !== undefined
+                ? `<span class="jt-key">"${escapeHtml(String(key))}"</span>: ` : '';
+            return `<div class="jt-line${diffCls}" style="padding-left:${indent}px">${keyPart}<span class="jt-val ${valCls}">${valHtml}</span>${comma}</div>`;
+        }
+
+        // Object or Array
+        const isArr = Array.isArray(value);
+        const entries = isArr ? value.map((v, i) => [String(i), v]) : Object.entries(value);
+        const open = isArr ? '[' : '{';
+        const close = isArr ? ']' : '}';
+        const hint = isArr ? `${entries.length} items` : `${entries.length} keys`;
+        const expanded = options.expandPaths?.has(path) ?? false;
+        const closedCls = expanded ? '' : ' jt-closed';
+
+        const keyPart = key !== null && key !== undefined
+            ? `<span class="jt-key">"${escapeHtml(String(key))}"</span>: ` : '';
+
+        let html = `<div class="jt-node${closedCls}" data-path="${escapeHtml(path)}">`;
+
+        // Opening line
+        html += `<div class="jt-line${diffCls}" style="padding-left:${indent}px">`;
+        if (entries.length > 0) {
+            html += `<span class="jt-tog">${expanded ? '▼' : '▶'}</span> `;
+        }
+        html += `${keyPart}<span class="jt-brace">${open}</span>`;
+        if (entries.length > 0) {
+            html += `<span class="jt-hint">${hint}</span>`;
+        } else {
+            html += `<span class="jt-brace">${close}</span>${comma}`;
+        }
+        html += `</div>`;
+
+        // Children + closing bracket (only for non-empty)
+        if (entries.length > 0) {
+            html += `<div class="jt-body">`;
+            for (let i = 0; i < entries.length; i++) {
+                const [k, v] = entries[i];
+                const childPath = path ? `${path}.${k}` : k;
+                const childKey = isArr ? i : k;
+                html += this._buildTreeNode(v, childKey, depth + 1, childPath, options, i === entries.length - 1);
+            }
+            html += `</div>`;
+            html += `<div class="jt-line jt-close" style="padding-left:${indent}px"><span class="jt-brace">${close}</span>${comma}</div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    _defaultExpandPaths(jsonStr) {
+        // Expand root + immediate children by default
+        const paths = new Set(['']);
+        try {
+            const obj = JSON.parse(jsonStr);
+            if (obj && typeof obj === 'object') {
+                for (const k of Object.keys(obj)) {
+                    paths.add(k);
+                }
+            }
+        } catch {}
+        return paths;
+    }
+
+    // ── JSON Diff Computation ──────────────────────────────────
+
+    _computeChangedPaths(beforeStr, afterStr) {
+        const changed = new Set();
+        try {
+            const before = JSON.parse(beforeStr);
+            const after = JSON.parse(afterStr);
+            this._findChanges(before, after, '', changed);
+        } catch {}
+        return changed;
+    }
+
+    _findChanges(before, after, path, changed) {
+        if (before === after) return;
+        if (before === null || after === null || typeof before !== typeof after || typeof before !== 'object') {
+            changed.add(path);
+            return;
+        }
+        const afterKeys = Object.keys(after);
+        const beforeSet = new Set(Object.keys(before));
+        for (const k of afterKeys) {
+            const cp = path ? `${path}.${k}` : k;
+            if (!beforeSet.has(k)) {
+                // New key - mark it and all descendants
+                this._markAllChanged(after[k], cp, changed);
+            } else {
+                this._findChanges(before[k], after[k], cp, changed);
+            }
+        }
+    }
+
+    _markAllChanged(value, path, changed) {
+        changed.add(path);
+        if (value && typeof value === 'object') {
+            for (const k of Object.keys(value)) {
+                this._markAllChanged(value[k], `${path}.${k}`, changed);
+            }
+        }
+    }
+
+    _getAncestorPaths(changedPaths) {
+        const expanded = new Set(['']);
+        for (const p of changedPaths) {
+            const parts = p.split('.');
+            let current = '';
+            for (const part of parts) {
+                current = current ? `${current}.${part}` : part;
+                expanded.add(current);
+            }
+        }
+        return expanded;
+    }
+
+    // ── Patch Change Handling ──────────────────────────────────
+
+    onJsonEditPatchChange() {
+        if (this._jsonEditMergeTimeout) {
+            clearTimeout(this._jsonEditMergeTimeout);
+        }
+
+        this._jsonEditMergeTimeout = setTimeout(() => {
+            const patchText = this.jsonEditPatchEditor?.getValue()?.trim();
+
+            if (!patchText) {
+                this.jsonEditPreviewJson = '';
+                this._jsonEditScrollSynced = false;
+                if (this.jsonEditStatus) {
+                    this.jsonEditStatus.textContent = '';
+                    this.jsonEditStatus.className = 'json-edit-status';
+                }
+                this.updateJsonEditViewers();
+                return;
+            }
+
+            try {
+                JSON.parse(patchText);
+            } catch (e) {
+                if (this.jsonEditStatus) {
+                    this.jsonEditStatus.textContent = `Invalid JSON: ${e.message}`;
+                    this.jsonEditStatus.className = 'json-edit-status error';
+                }
+                return;
+            }
+
+            if (this.jsonEditStatus) {
+                this.jsonEditStatus.textContent = 'Merging...';
+                this.jsonEditStatus.className = 'json-edit-status loading';
+            }
+            this.requestJsonEditMergePreview(patchText);
+        }, 500);
+    }
+
+    requestJsonEditMergePreview(patchJson) {
+        if (!this.jsonEditAsset) return;
+
+        let basePath = this.jsonEditAsset.id;
+        if (!basePath.includes('/')) {
+            basePath = `${this.jsonEditAsset.category}/${basePath}`;
+        }
+        basePath = basePath.replace(/\.json$/i, '');
+
+        this._jsonEditMergePending = true;
+        this.send('REQUEST_PATCH_MERGE_PREVIEW', { basePath, patchJson });
+    }
+
+    handleJsonEditMergePreview(data) {
+        if (data.error) {
+            if (this.jsonEditStatus) {
+                this.jsonEditStatus.textContent = `Error: ${data.error}`;
+                this.jsonEditStatus.className = 'json-edit-status error';
+            }
+            return;
+        }
+
+        const mergedJson = data.mergedJson;
+        if (!mergedJson) return;
+
+        this.jsonEditPreviewJson = this.formatJson(mergedJson);
+
+        if (this.jsonEditStatus) {
+            this.jsonEditStatus.textContent = 'Preview ready';
+            this.jsonEditStatus.className = 'json-edit-status success';
+        }
+
+        this.updateJsonEditViewers(true);
     }
 
     formatJson(jsonStr) {
