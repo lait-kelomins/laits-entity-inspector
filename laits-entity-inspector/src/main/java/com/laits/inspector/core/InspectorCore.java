@@ -10,6 +10,7 @@ import com.laits.inspector.cache.InspectorCache;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
+import com.laits.inspector.data.asset.PatchTimeline;
 import com.laits.inspector.protocol.OutgoingMessage;
 import com.laits.inspector.transport.DataTransport;
 import com.laits.inspector.transport.DataTransportListener;
@@ -789,6 +790,51 @@ public class InspectorCore implements DataTransportListener {
     @Override
     public List<HistoryEntry> getSessionHistory() {
         return historyTracker.getHistory();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW IMPLEMENTATION
+    // ═══════════════════════════════════════════════════════════════
+
+    @Override
+    public PatchTimeline getAssetPatchTimeline(String basePath) {
+        if (!config.getDebug().isPatchManagement()) {
+            return null;
+        }
+        return patchManager.getAssetPatchTimeline(basePath, assetCollector);
+    }
+
+    @Override
+    public String computeMergePreview(String basePath, String patchJson) {
+        if (!config.getDebug().isPatchManagement()) {
+            return null;
+        }
+        return patchManager.computeMergePreview(basePath, patchJson, assetCollector);
+    }
+
+    @Override
+    public String computeRevertPreview(String basePath, String patchFilename) {
+        if (!config.getDebug().isPatchManagement()) {
+            return null;
+        }
+        return patchManager.computeRevertPreview(basePath, patchFilename, assetCollector);
+    }
+
+    @Override
+    public String revertPatch(String basePath, String patchFilename) {
+        if (!config.getDebug().isPatchManagement()) {
+            return "Patch management is disabled via debug config";
+        }
+        try {
+            patchManager.deletePatch(patchFilename);
+            LOGGER.atInfo().log("Reverted patch: %s for asset: %s", patchFilename, basePath);
+            this.lastPatchedAssetPath = basePath;
+            scheduleDelayedRefresh();
+            return null; // Success
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to revert patch %s: %s", patchFilename, e.getMessage());
+            return e.getMessage();
+        }
     }
 
     /**

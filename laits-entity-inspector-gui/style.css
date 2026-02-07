@@ -2784,6 +2784,93 @@ body {
     filter: brightness(1.2);
 }
 
+.btn-warning {
+    background: var(--warning);
+    border-color: var(--warning);
+    color: var(--black);
+    font-weight: bold;
+}
+
+.btn-warning:hover {
+    filter: brightness(1.2);
+}
+
+/* Revert Confirmation Modal */
+.revert-confirm-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.revert-confirm-modal {
+    background: var(--darker);
+    border: 1px solid var(--gray);
+    width: 90vw;
+    max-width: 1200px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.revert-confirm-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--gray-dark);
+    border-bottom: 1px solid var(--gray);
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--warning);
+}
+
+.revert-confirm-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.revert-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.revert-pane:first-child {
+    border-right: 1px solid var(--gray);
+}
+
+.revert-pane-content {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    background: var(--black);
+    white-space: pre;
+    color: var(--text);
+}
+
+.revert-confirm-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: var(--gray-dark);
+    border-top: 1px solid var(--gray);
+    justify-content: flex-end;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PATCH MODAL
    ═══════════════════════════════════════════════════════════════ */
@@ -3218,6 +3305,246 @@ body {
 
 .patch-preview .json-view {
     color: var(--accent);
+}
+
+/* Merge Preview */
+.merge-preview {
+    background: var(--black);
+    border: 1px solid var(--gray);
+    display: flex;
+    flex-direction: column;
+}
+
+.merge-preview-toggle {
+    cursor: pointer;
+    user-select: none;
+    gap: 6px;
+}
+
+.merge-preview-toggle:hover {
+    background: var(--gray);
+}
+
+.merge-preview-toggle .collapse-toggle {
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform 0.15s;
+}
+
+.merge-preview-toggle .preview-hint {
+    font-weight: normal;
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: auto;
+}
+
+.merge-preview-content {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    font-family: var(--font-mono);
+    background: var(--black);
+    white-space: pre;
+}
+
+.merge-preview-content.collapsed {
+    display: none;
+}
+
+/* Timeline Button */
+.timeline-btn {
+    background: var(--accent);
+    color: var(--black);
+    border: 1px solid var(--accent);
+    padding: 4px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.timeline-btn:hover {
+    filter: brightness(1.1);
+}
+
+.timeline-btn.hidden {
+    display: none;
+}
+
+/* Timeline Modal */
+.timeline-modal-panel {
+    width: 98vw;
+    max-width: 98vw;
+    height: 96vh;
+    max-height: 96vh;
+}
+
+.timeline-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.timeline-steps {
+    width: 260px;
+    min-width: 260px;
+    border-right: 1px solid var(--gray);
+    overflow-y: auto;
+    background: var(--darker);
+}
+
+.timeline-step {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--gray-dark);
+    font-size: 11px;
+    transition: background 0.1s;
+}
+
+.timeline-step:hover {
+    background: var(--gray-dark);
+}
+
+.timeline-step.active {
+    background: var(--gray);
+    border-left: 3px solid var(--accent);
+}
+
+.timeline-step-index {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-right: 4px;
+}
+
+.timeline-step-filename {
+    color: var(--text-bright);
+    font-weight: bold;
+    word-break: break-all;
+}
+
+.timeline-step-mod {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 5px;
+    margin-top: 3px;
+    border-radius: 2px;
+    background: var(--gray);
+    color: var(--text-dim);
+}
+
+.timeline-step-mod.editable {
+    background: var(--warning);
+    color: var(--black);
+}
+
+.timeline-step-base {
+    color: var(--accent);
+    font-weight: bold;
+}
+
+.timeline-step .revert-btn {
+    float: right;
+    background: var(--error);
+    color: var(--text-bright);
+    border: none;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    margin-top: 3px;
+}
+
+.timeline-step .revert-btn:hover {
+    filter: brightness(1.2);
+}
+
+.timeline-diff {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.timeline-diff-header {
+    padding: 6px 12px;
+    background: var(--gray-dark);
+    border-bottom: 1px solid var(--gray);
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--text-bright);
+}
+
+.timeline-diff-panes {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.timeline-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.timeline-pane:first-child {
+    border-right: 1px solid var(--gray);
+}
+
+.timeline-pane-content {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    background: var(--black);
+    white-space: pre;
+    color: var(--text);
+}
+
+/* Diff highlighting - use div lines inside <pre> */
+.diff-line {
+    min-height: 1.5em;
+}
+
+.diff-add {
+    background: rgba(80, 200, 80, 0.15);
+    color: #7ce87c;
+}
+
+.diff-remove {
+    background: rgba(200, 80, 80, 0.15);
+    color: #e87c7c;
+}
+
+.diff-change {
+    background: rgba(200, 200, 80, 0.15);
+    color: #e8e87c;
+}
+
+/* Timeline revert bar */
+.timeline-revert-bar {
+    display: none;
+    padding: 8px 12px;
+    background: var(--gray-dark);
+    border-top: 1px solid var(--gray);
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.timeline-revert-bar.visible {
+    display: flex;
+}
+
+.timeline-revert-bar .revert-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-right: auto;
 }
 
 /* Modal Footer */

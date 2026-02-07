@@ -182,6 +182,7 @@
                         <span class="panel-title">┌─[ ASSET DETAIL ]────────────┐</span>
                         <span class="header-spacer"></span>
                         <button class="refresh-asset-btn hidden" id="refresh-asset-btn" title="Refresh Asset">↻</button>
+                        <button class="timeline-btn hidden" id="timeline-btn" title="Patch Timeline">TIMELINE</button>
                         <button class="patch-btn hidden" id="patch-btn" title="Create Patch">PATCH</button>
                         <button class="info-btn" data-info="asset-detail" title="Asset Detail Help">i</button>
                     </div>
@@ -435,6 +436,17 @@
                     <div class="pane-header">GENERATED PATCH</div>
                     <pre id="patch-preview" class="json-view"></pre>
                 </div>
+
+                <!-- Merge Preview (asset state after patch applied) -->
+                <div class="merge-preview" id="merge-preview-section" style="display: none;">
+                    <div class="pane-header merge-preview-toggle" id="merge-preview-toggle">
+                        <span class="collapse-toggle" id="merge-preview-arrow">&#9654;</span>
+                        <span>MERGED RESULT</span>
+                        <span class="preview-hint">(asset state after this patch)</span>
+                    </div>
+                    <div class="merge-preview-content collapsed" id="merge-preview-content">
+                    </div>
+                </div>
             </div>
 
             <div class="modal-footer">
@@ -605,6 +617,39 @@
                 <button class="settings-btn" id="settings-apply">Apply Changes</button>
                 <button class="settings-btn secondary" id="settings-cancel">Cancel</button>
                 <span class="settings-status" id="settings-status"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timeline Modal -->
+    <div id="timeline-modal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-panel timeline-modal-panel">
+            <div class="modal-header">
+                <span class="modal-title">&#9472;&#9472;[ PATCH TIMELINE ]&#9472;&#9472;</span>
+                <button class="modal-close" id="timeline-modal-close">&times;</button>
+            </div>
+            <div class="timeline-body">
+                <div class="timeline-steps" id="timeline-steps">
+                    <div class="empty-state small">Loading timeline...</div>
+                </div>
+                <div class="timeline-diff" id="timeline-diff">
+                    <div class="timeline-diff-header" id="timeline-diff-header"></div>
+                    <div class="timeline-diff-panes">
+                        <div class="timeline-pane">
+                            <div class="pane-header">BEFORE</div>
+                            <pre class="timeline-pane-content" id="timeline-before"></pre>
+                        </div>
+                        <div class="timeline-pane">
+                            <div class="pane-header">AFTER</div>
+                            <pre class="timeline-pane-content" id="timeline-after"></pre>
+                        </div>
+                    </div>
+                    <div class="timeline-revert-bar" id="timeline-revert-bar">
+                        <span class="revert-label">This patch can be reverted (file will be deleted)</span>
+                        <button class="btn-danger" id="timeline-revert-btn">Revert Patch</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

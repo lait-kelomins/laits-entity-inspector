@@ -846,6 +846,25 @@ public class AssetCollector {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // HYTALOR PATH RESOLUTION
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Resolve an asset ID to the Server-relative path with .json extension.
+     * Asset IDs in fileAssetPaths are stored as "Category/Sub/Asset" (no Server/ prefix, no .json).
+     * Hytalor's getPatches() expects "Server/Category/Sub/Asset.json".
+     *
+     * @param assetId The asset ID (e.g., "NPC/Roles/Creature/Cow")
+     * @return The Server-relative path (e.g., "Server/NPC/Roles/Creature/Cow.json"), or null if not found
+     */
+    public String resolveHytalorBasePath(String assetId) {
+        if (fileAssetPaths.containsKey(assetId)) {
+            return "Server/" + assetId + ".json";
+        }
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // HELPER METHODS
     // ═══════════════════════════════════════════════════════════════
 

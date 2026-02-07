@@ -75,6 +75,22 @@ public enum MessageType {
     ALL_PATCHES_LIST,          // Patches from all mods (with isEditable flag)
 
     // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW (Client → Server)
+    // ═══════════════════════════════════════════════════════════════
+    REQUEST_PATCH_TIMELINE,        // Request full patch timeline for an asset
+    REQUEST_PATCH_MERGE_PREVIEW,   // Request merged result after applying a patch
+    REQUEST_REVERT_PREVIEW,        // Request preview of asset state after removing a patch
+    REQUEST_REVERT_PATCH,          // Request deletion of a patch (with refresh)
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW (Server → Client)
+    // ═══════════════════════════════════════════════════════════════
+    PATCH_TIMELINE,                // Full patch timeline with before/after states
+    PATCH_MERGE_PREVIEW,           // Merged asset state after applying a patch
+    REVERT_PREVIEW,                // Asset state after removing a patch
+    REVERT_RESULT,                 // Result of patch revert operation
+
+    // ═══════════════════════════════════════════════════════════════
     // FEATURE DETECTION (Server → Client)
     // ═══════════════════════════════════════════════════════════════
     FEATURE_INFO,              // Feature flags (hytalorEnabled, etc.)

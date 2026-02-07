@@ -769,6 +769,26 @@ class EntityInspector {
         this.modeBtns = document.querySelectorAll('.mode-btn');
         this.patchEditorMode = 'diff';
 
+        // Timeline elements
+        this.timelineBtn = document.getElementById('timeline-btn');
+        this.timelineModal = document.getElementById('timeline-modal');
+        this.timelineModalClose = document.getElementById('timeline-modal-close');
+        this.timelineSteps = document.getElementById('timeline-steps');
+        this.timelineDiff = document.getElementById('timeline-diff');
+        this.timelineDiffHeader = document.getElementById('timeline-diff-header');
+        this.timelineBefore = document.getElementById('timeline-before');
+        this.timelineAfter = document.getElementById('timeline-after');
+        this.timelineRevertBar = document.getElementById('timeline-revert-bar');
+        this.timelineRevertBtn = document.getElementById('timeline-revert-btn');
+        this.currentTimeline = null;
+        this._activeTimelineStep = -1;
+
+        // Merge preview elements
+        this.mergePreviewSection = document.getElementById('merge-preview-section');
+        this.mergePreviewToggle = document.getElementById('merge-preview-toggle');
+        this.mergePreviewArrow = document.getElementById('merge-preview-arrow');
+        this.mergePreviewContent = document.getElementById('merge-preview-content');
+
         // Header elements
         this.headerEl = document.getElementById('header');
         this.headerLogoSection = document.getElementById('header-logo-section');
@@ -785,6 +805,7 @@ class EntityInspector {
         this.setupTabListeners();
         this.setupAssetBrowserListeners();
         this.setupPatchModalListeners();
+        this.setupTimelineModalListeners();
         this.setupInfoPopovers();
         this.loadHeaderState();
         this.loadCachedConfig();  // Load settings from localStorage as fallback
@@ -1155,6 +1176,20 @@ class EntityInspector {
                     break;
                 case 'ALL_PATCHES_LIST':
                     this.handleAllPatchesList(msg.data);
+                    break;
+
+                // Patch timeline & preview
+                case 'PATCH_TIMELINE':
+                    this.handlePatchTimeline(msg.data);
+                    break;
+                case 'PATCH_MERGE_PREVIEW':
+                    this.handlePatchMergePreview(msg.data);
+                    break;
+                case 'REVERT_PREVIEW':
+                    this.handleRevertPreview(msg.data);
+                    break;
+                case 'REVERT_RESULT':
+                    this.handleRevertResult(msg.data);
                     break;
 
                 // NPC instruction inspection
@@ -5441,6 +5476,13 @@ class EntityInspector {
             });
         }
 
+        // Timeline button
+        if (this.timelineBtn) {
+            this.timelineBtn.addEventListener('click', () => {
+                this.openTimeline();
+            });
+        }
+
         // Refresh asset button (re-fetches current asset from game API)
         if (this.refreshAssetBtn) {
             this.refreshAssetBtn.addEventListener('click', () => {
@@ -5561,9 +5603,12 @@ class EntityInspector {
         this.patchDirectory = data.patchDirectory;
         this.patchAssetPackName = data.patchAssetPackName;
 
-        // Show/hide patch button based on Hytalor status
+        // Show/hide patch & timeline buttons based on Hytalor status
         if (this.patchBtn) {
             this.patchBtn.classList.toggle('hidden', !this.hytalorEnabled);
+        }
+        if (this.timelineBtn) {
+            this.timelineBtn.classList.toggle('hidden', !this.hytalorEnabled);
         }
 
         const packInfo = this.patchAssetPackName ? ` (saving to: ${this.patchAssetPackName})` : '';
@@ -6118,8 +6163,40 @@ class EntityInspector {
             this.publishBtn.addEventListener('click', () => this.publishPatch());
         }
 
+        // Merge preview toggle
+        if (this.mergePreviewToggle) {
+            this.mergePreviewToggle.addEventListener('click', () => {
+                if (!this.mergePreviewContent) return;
+                const isCollapsed = this.mergePreviewContent.classList.contains('collapsed');
+                this.mergePreviewContent.classList.toggle('collapsed');
+                if (this.mergePreviewArrow) {
+                    this.mergePreviewArrow.textContent = isCollapsed ? '\u25BC' : '\u25B6';
+                }
+            });
+        }
+
         // Initialize JSON editor enhancers for indent guides, bracket matching, auto-indent
         this.initJsonEditorEnhancers();
+    }
+
+    setupTimelineModalListeners() {
+        // Close button
+        if (this.timelineModalClose) {
+            this.timelineModalClose.addEventListener('click', () => this.closeTimeline());
+        }
+        // Overlay click
+        const overlay = this.timelineModal?.querySelector('.modal-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', () => this.closeTimeline());
+        }
+        // Revert bar button
+        if (this.timelineRevertBtn) {
+            this.timelineRevertBtn.addEventListener('click', () => {
+                if (this._activeTimelineStep >= 0) {
+                    this.openRevertPreview(this._activeTimelineStep);
+                }
+            });
+        }
     }
 
     initJsonEditorEnhancers() {
@@ -6626,6 +6703,8 @@ class EntityInspector {
             this.draftStatus.textContent = '';
             this.draftStatus.className = 'draft-status';
         }
+        // Clear merge preview
+        this.hideMergePreview();
 
         // Show modal
         if (this.patchModal) {
@@ -6649,6 +6728,461 @@ class EntityInspector {
         }
         // Clear pending modal refresh flag
         this._pendingModalRefresh = null;
+        // Clear merge preview
+        this.hideMergePreview();
+    }
+
+    // ─── Merge Preview ─────────────────────────────────────────────
+
+    requestMergePreview(patchJson) {
+        const basePath = this.patchBasePath?.value || '';
+        if (!basePath) return;
+        this.send('REQUEST_PATCH_MERGE_PREVIEW', { basePath, patchJson });
+    }
+
+    handlePatchMergePreview(data) {
+        if (data.error) {
+            console.warn('Merge preview error:', data.error);
+            this.hideMergePreview();
+            return;
+        }
+
+        const mergedJson = data.mergedJson;
+        if (!mergedJson || !this.mergePreviewContent || !this.mergePreviewSection) return;
+
+        try {
+            // Format both the current asset and the merged result
+            const originalText = this.originalJson?.textContent || '{}';
+            const beforeFormatted = this.formatJson(originalText);
+            const afterFormatted = this.formatJson(mergedJson);
+
+            // Render as diff-highlighted lines
+            this.mergePreviewContent.innerHTML = this.renderDiffHtml(beforeFormatted, afterFormatted);
+
+            // Show the section
+            this.mergePreviewSection.style.display = '';
+        } catch (e) {
+            console.warn('Failed to parse merge preview:', e);
+            this.hideMergePreview();
+        }
+    }
+
+    hideMergePreview() {
+        if (this.mergePreviewSection) {
+            this.mergePreviewSection.style.display = 'none';
+        }
+        if (this.mergePreviewContent) {
+            this.mergePreviewContent.innerHTML = '';
+            this.mergePreviewContent.classList.add('collapsed');
+        }
+        if (this.mergePreviewArrow) {
+            this.mergePreviewArrow.textContent = '\u25B6';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE
+    // ═══════════════════════════════════════════════════════════════
+
+    openTimeline() {
+        if (!this.assetDetail) {
+            this.log('No asset selected', 'disconnect');
+            return;
+        }
+        // Show modal with loading state
+        if (this.timelineModal) {
+            this.timelineModal.classList.remove('hidden');
+        }
+        if (this.timelineSteps) {
+            this.timelineSteps.innerHTML = '<div class="empty-state small">Loading timeline...</div>';
+        }
+        if (this.timelineDiffHeader) {
+            this.timelineDiffHeader.textContent = '';
+        }
+        if (this.timelineBefore) this.timelineBefore.innerHTML = '';
+        if (this.timelineAfter) this.timelineAfter.innerHTML = '';
+
+        this.send('REQUEST_PATCH_TIMELINE', { basePath: this.assetDetail.id });
+    }
+
+    closeTimeline() {
+        if (this.timelineModal) {
+            this.timelineModal.classList.add('hidden');
+        }
+        this.currentTimeline = null;
+    }
+
+    handlePatchTimeline(data) {
+        if (data.error) {
+            this.log(`Timeline error: ${data.error}`, 'error');
+            if (this.timelineSteps) {
+                this.timelineSteps.innerHTML = `<div class="empty-state small">Error: ${escapeHtml(data.error)}</div>`;
+            }
+            return;
+        }
+        this.currentTimeline = data;
+        this.renderTimelineSteps(data);
+    }
+
+    renderTimelineSteps(timeline) {
+        if (!this.timelineSteps) return;
+
+        const entries = timeline.entries || [];
+        let html = '';
+
+        // Step 0: BASE
+        html += `<div class="timeline-step active" data-step="-1">
+            <span class="timeline-step-index">#0</span>
+            <span class="timeline-step-base">BASE (unpatched)</span>
+        </div>`;
+
+        // Each patch step
+        entries.forEach((entry, i) => {
+            const modBadge = entry.isEditable
+                ? `<span class="timeline-step-mod editable">yours</span>`
+                : `<span class="timeline-step-mod">${escapeHtml(entry.sourceMod || 'unknown')}</span>`;
+            const revertBtn = entry.isEditable
+                ? `<button class="revert-btn" data-step="${i}" title="Revert this patch">\u2715</button>`
+                : '';
+            html += `<div class="timeline-step" data-step="${i}">
+                <span class="timeline-step-index">#${i + 1}</span>
+                <span class="timeline-step-filename">${escapeHtml(entry.filename || 'unknown')}</span>
+                ${revertBtn}
+                <br>${modBadge}
+            </div>`;
+        });
+
+        this.timelineSteps.innerHTML = html;
+
+        // Click handlers for steps
+        this.timelineSteps.querySelectorAll('.timeline-step').forEach(stepEl => {
+            stepEl.addEventListener('click', (e) => {
+                if (e.target.closest('.revert-btn')) return; // handled separately
+                const stepIdx = parseInt(stepEl.dataset.step);
+                this.showTimelineStep(stepIdx);
+                // Highlight active
+                this.timelineSteps.querySelectorAll('.timeline-step').forEach(s => s.classList.remove('active'));
+                stepEl.classList.add('active');
+            });
+        });
+
+        // Click handlers for revert buttons
+        this.timelineSteps.querySelectorAll('.revert-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const stepIdx = parseInt(btn.dataset.step);
+                const entry = entries[stepIdx];
+                if (entry) {
+                    this.openRevertPreview(stepIdx);
+                }
+            });
+        });
+
+        // Auto-select base step
+        this.showTimelineStep(-1);
+    }
+
+    showTimelineStep(index) {
+        if (!this.currentTimeline) return;
+
+        const timeline = this.currentTimeline;
+        const entries = timeline.entries || [];
+        this._activeTimelineStep = index;
+
+        let beforeJson, afterJson, title;
+        let isEditable = false;
+
+        if (index === -1) {
+            // Base step
+            title = 'BASE (unpatched asset)';
+            beforeJson = null;
+            afterJson = timeline.baseAssetJson || '{}';
+        } else if (index >= 0 && index < entries.length) {
+            const entry = entries[index];
+            title = `Patch #${index + 1}: ${entry.filename || 'unknown'}`;
+            beforeJson = entry.stateBefore || '{}';
+            afterJson = entry.stateAfter || '{}';
+            isEditable = entry.isEditable;
+        } else {
+            return;
+        }
+
+        if (this.timelineDiffHeader) {
+            this.timelineDiffHeader.textContent = title;
+        }
+
+        // Show/hide revert bar
+        if (this.timelineRevertBar) {
+            this.timelineRevertBar.classList.toggle('visible', isEditable);
+        }
+
+        if (index === -1) {
+            // Base: no BEFORE, just show the base in AFTER
+            if (this.timelineBefore) {
+                this.timelineBefore.innerHTML = '<span style="color: var(--text-dim)">(no previous state)</span>';
+            }
+            if (this.timelineAfter) {
+                this.timelineAfter.textContent = this.formatJson(afterJson);
+            }
+        } else {
+            // Format and diff
+            const beforeFormatted = this.formatJson(beforeJson);
+            const afterFormatted = this.formatJson(afterJson);
+            this.highlightDiff(beforeFormatted, afterFormatted);
+
+            // Scroll to first change in the AFTER pane
+            if (this.timelineAfter) {
+                const firstChange = this.timelineAfter.querySelector('.diff-add');
+                if (firstChange) {
+                    firstChange.scrollIntoView({ block: 'center', behavior: 'instant' });
+                }
+            }
+        }
+    }
+
+    formatJson(jsonStr) {
+        try {
+            return JSON.stringify(JSON.parse(jsonStr), null, 2);
+        } catch {
+            return jsonStr;
+        }
+    }
+
+    highlightDiff(beforeText, afterText) {
+        const beforeLines = beforeText.split('\n');
+        const afterLines = afterText.split('\n');
+
+        // LCS-based diff
+        const lcs = this.computeLCS(beforeLines, afterLines);
+
+        // Mark lines based on LCS
+        const beforeMarked = new Array(beforeLines.length).fill('remove');
+        const afterMarked = new Array(afterLines.length).fill('add');
+
+        for (const [lb, la] of lcs) {
+            beforeMarked[lb] = 'same';
+            afterMarked[la] = 'same';
+        }
+
+        // Render using <div> lines (no \n joiner needed)
+        if (this.timelineBefore) {
+            this.timelineBefore.innerHTML = beforeLines.map((line, i) => {
+                const cls = beforeMarked[i] === 'remove' ? 'diff-line diff-remove' : 'diff-line';
+                return `<div class="${cls}">${escapeHtml(line) || ' '}</div>`;
+            }).join('');
+        }
+
+        if (this.timelineAfter) {
+            this.timelineAfter.innerHTML = afterLines.map((line, i) => {
+                const cls = afterMarked[i] === 'add' ? 'diff-line diff-add' : 'diff-line';
+                return `<div class="${cls}">${escapeHtml(line) || ' '}</div>`;
+            }).join('');
+        }
+    }
+
+    /**
+     * Render a diff view into a container element.
+     * Returns the HTML string of div lines with diff highlighting.
+     */
+    renderDiffHtml(beforeText, afterText) {
+        const beforeLines = beforeText.split('\n');
+        const afterLines = afterText.split('\n');
+        const lcs = this.computeLCS(beforeLines, afterLines);
+        const afterMarked = new Array(afterLines.length).fill('add');
+        for (const [, la] of lcs) {
+            afterMarked[la] = 'same';
+        }
+        return afterLines.map((line, i) => {
+            const cls = afterMarked[i] === 'add' ? 'diff-line diff-add' : 'diff-line';
+            return `<div class="${cls}">${escapeHtml(line) || ' '}</div>`;
+        }).join('');
+    }
+
+    computeLCS(a, b) {
+        // Optimized LCS for lines - uses patience-like approach for large files
+        // Falls back to simple DP for small files
+        const m = a.length;
+        const n = b.length;
+
+        if (m * n > 1000000) {
+            // For very large files, use a simpler hash-based approach
+            return this.computeLCSHashed(a, b);
+        }
+
+        // Standard DP approach
+        const dp = new Array(m + 1);
+        for (let i = 0; i <= m; i++) {
+            dp[i] = new Array(n + 1).fill(0);
+        }
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                if (a[i - 1] === b[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+
+        // Backtrack to get pairs
+        const result = [];
+        let i = m, j = n;
+        while (i > 0 && j > 0) {
+            if (a[i - 1] === b[j - 1]) {
+                result.push([i - 1, j - 1]);
+                i--; j--;
+            } else if (dp[i - 1][j] > dp[i][j - 1]) {
+                i--;
+            } else {
+                j--;
+            }
+        }
+        return result.reverse();
+    }
+
+    computeLCSHashed(a, b) {
+        // For large files: find unique matching lines and use them as anchors
+        const result = [];
+        const bMap = new Map();
+        b.forEach((line, j) => {
+            if (!bMap.has(line)) bMap.set(line, []);
+            bMap.get(line).push(j);
+        });
+
+        let lastJ = -1;
+        for (let i = 0; i < a.length; i++) {
+            const positions = bMap.get(a[i]);
+            if (positions) {
+                // Find first position after lastJ
+                for (const j of positions) {
+                    if (j > lastJ) {
+                        result.push([i, j]);
+                        lastJ = j;
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH REVERT
+    // ═══════════════════════════════════════════════════════════════
+
+    openRevertPreview(stepIndex) {
+        if (!this.currentTimeline) return;
+        const entries = this.currentTimeline.entries || [];
+        const entry = entries[stepIndex];
+        if (!entry) return;
+
+        this._pendingRevert = {
+            basePath: this.currentTimeline.baseAssetPath,
+            filename: entry.filename,
+            currentState: entry.stateAfter
+        };
+
+        this.send('REQUEST_REVERT_PREVIEW', {
+            basePath: this.currentTimeline.baseAssetPath,
+            filename: entry.filename
+        });
+    }
+
+    requestRevertFromHistory(basePath, filename) {
+        this._pendingRevert = {
+            basePath: basePath,
+            filename: filename,
+            currentState: null // We don't have it from history
+        };
+
+        this.send('REQUEST_REVERT_PREVIEW', { basePath, filename });
+    }
+
+    handleRevertPreview(data) {
+        if (data.error) {
+            this.log(`Revert preview error: ${data.error}`, 'error');
+            return;
+        }
+
+        const pending = this._pendingRevert;
+        if (!pending) return;
+
+        const previewJson = data.previewJson;
+        const filename = data.filename || pending.filename;
+
+        // Show confirmation modal
+        this.showRevertConfirmation(pending.basePath, filename, pending.currentState, previewJson);
+    }
+
+    showRevertConfirmation(basePath, filename, currentState, revertedState) {
+        // Remove any existing revert confirmation
+        const existing = document.getElementById('revert-confirm-overlay');
+        if (existing) existing.remove();
+
+        const currentFormatted = currentState ? this.formatJson(currentState) : '(current state not available)';
+        const revertedFormatted = this.formatJson(revertedState);
+
+        const modalHtml = `
+            <div class="revert-confirm-overlay" id="revert-confirm-overlay">
+                <div class="revert-confirm-modal">
+                    <div class="revert-confirm-header">
+                        <span>Confirm Revert: ${escapeHtml(filename)}</span>
+                        <button class="modal-close" id="revert-confirm-close">&times;</button>
+                    </div>
+                    <div class="revert-confirm-body">
+                        ${currentState ? `<div class="revert-pane">
+                            <div class="pane-header">CURRENT (with patch)</div>
+                            <pre class="revert-pane-content">${escapeHtml(currentFormatted)}</pre>
+                        </div>` : ''}
+                        <div class="revert-pane">
+                            <div class="pane-header">AFTER REVERT</div>
+                            <pre class="revert-pane-content">${escapeHtml(revertedFormatted)}</pre>
+                        </div>
+                    </div>
+                    <div class="revert-confirm-actions">
+                        <button class="btn-danger" id="revert-confirm-btn">Revert Patch</button>
+                        <button class="btn-secondary" id="revert-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const overlay = document.getElementById('revert-confirm-overlay');
+        const closeBtn = document.getElementById('revert-confirm-close');
+        const confirmBtn = document.getElementById('revert-confirm-btn');
+        const cancelBtn = document.getElementById('revert-cancel-btn');
+
+        const closeModal = () => {
+            overlay.remove();
+            this._pendingRevert = null;
+        };
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+
+        confirmBtn.addEventListener('click', () => {
+            this.send('REQUEST_REVERT_PATCH', { basePath, filename });
+            closeModal();
+        });
+    }
+
+    handleRevertResult(data) {
+        if (data.success) {
+            this.log(`Patch reverted: ${data.filename}`, 'info');
+            // Remove from session history
+            this.sessionHistory = this.sessionHistory.filter(h => h.filename !== data.filename);
+            this.renderHistory();
+            // Close timeline if open
+            this.closeTimeline();
+            // Assets will auto-refresh via ASSETS_REFRESHED broadcast
+        } else {
+            this.log(`Failed to revert patch: ${data.error || 'unknown error'}`, 'error');
+        }
     }
 
     /**
@@ -6731,10 +7265,17 @@ class EntityInspector {
             if (this.patchPreview) {
                 this.patchPreview.textContent = JSON.stringify(patch, null, 2);
             }
+            // Chain merge preview for direct JSON mode too
+            if (this.hytalorEnabled && patchText.trim()) {
+                this.requestMergePreview(JSON.stringify(patch, null, 2));
+            } else {
+                this.hideMergePreview();
+            }
         } catch (e) {
             if (this.patchPreview) {
                 this.patchPreview.textContent = `Error: ${e.message}`;
             }
+            this.hideMergePreview();
         }
     }
 
@@ -6757,8 +7298,15 @@ class EntityInspector {
         if (this.patchPreview) {
             if (data.error) {
                 this.patchPreview.textContent = `Error: ${data.error}`;
+                this.hideMergePreview();
             } else {
                 this.patchPreview.textContent = data.patchJson || 'No changes';
+                // Chain merge preview request if Hytalor is available and we have a valid patch
+                if (this.hytalorEnabled && data.patchJson && data.patchJson !== 'No changes') {
+                    this.requestMergePreview(data.patchJson);
+                } else {
+                    this.hideMergePreview();
+                }
             }
         }
     }
@@ -7119,12 +7667,10 @@ class EntityInspector {
                     </div>
                     <div class="history-modal-actions">
                         ${isEditable ? '<button class="btn-danger" id="history-delete-btn">Delete</button>' : ''}
+                        ${isEditable && this.hytalorEnabled ? '<button class="btn-warning" id="history-revert-btn">Revert</button>' : ''}
                         <button class="btn-secondary" id="history-copy-btn">Copy</button>
                         ${isEditable ? '<button class="btn-primary" id="history-republish-btn">Republish</button>' : ''}
                     </div>
-                    ${isEditable ? `<div class="history-modal-warning">
-                        Note: Game may need to be restarted for patch deletion to take effect. Patch revert is planned for a future update.
-                    </div>` : ''}
                 </div>
             </div>
         `;
@@ -7136,6 +7682,7 @@ class EntityInspector {
         const overlay = document.getElementById('history-modal-overlay');
         const closeBtn = document.getElementById('history-modal-close');
         const deleteBtn = document.getElementById('history-delete-btn');
+        const revertBtn = document.getElementById('history-revert-btn');
         const copyBtn = document.getElementById('history-copy-btn');
         const republishBtn = document.getElementById('history-republish-btn');
         const contentArea = document.getElementById('history-patch-content');
@@ -7161,6 +7708,13 @@ class EntityInspector {
                 // Use server-side deletion to sync with InspectorPatches folder
                 this.requestDeletePatch(entry.filename);
                 closeModal();
+            });
+        }
+
+        if (revertBtn) {
+            revertBtn.addEventListener('click', () => {
+                closeModal();
+                this.requestRevertFromHistory(entry.baseAssetPath, entry.filename);
             });
         }
 

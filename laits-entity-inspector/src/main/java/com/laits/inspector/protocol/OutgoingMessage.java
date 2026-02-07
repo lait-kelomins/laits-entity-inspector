@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
+import com.laits.inspector.data.asset.PatchTimeline;
+import com.laits.inspector.data.asset.PatchTimelineEntry;
 
 import java.util.List;
 import java.util.Map;
@@ -273,6 +275,38 @@ public class OutgoingMessage {
                 ))
                 .toList();
         return new OutgoingMessage(MessageType.ALL_PATCHES_LIST, new AllPatchesListData(patchInfoList));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW MESSAGES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Create PATCH_TIMELINE message with full timeline data.
+     */
+    public static OutgoingMessage patchTimeline(PatchTimeline timeline) {
+        return new OutgoingMessage(MessageType.PATCH_TIMELINE, timeline);
+    }
+
+    /**
+     * Create PATCH_MERGE_PREVIEW message with merged asset state.
+     */
+    public static OutgoingMessage patchMergePreview(String basePath, String mergedJson) {
+        return new OutgoingMessage(MessageType.PATCH_MERGE_PREVIEW, new MergePreviewData(basePath, mergedJson));
+    }
+
+    /**
+     * Create REVERT_PREVIEW message with asset state after removing a patch.
+     */
+    public static OutgoingMessage revertPreview(String basePath, String filename, String previewJson) {
+        return new OutgoingMessage(MessageType.REVERT_PREVIEW, new RevertPreviewData(basePath, filename, previewJson));
+    }
+
+    /**
+     * Create REVERT_RESULT message confirming patch revert.
+     */
+    public static OutgoingMessage revertResult(String filename, boolean success, String error) {
+        return new OutgoingMessage(MessageType.REVERT_RESULT, new RevertResultData(filename, success, error));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -779,6 +813,53 @@ public class OutgoingMessage {
             this.alarmName = alarmName;
             this.state = state;
             this.entities = entities;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW DATA CLASSES
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Data for merge preview response.
+     */
+    private static class MergePreviewData {
+        private final String basePath;
+        private final String mergedJson;
+
+        MergePreviewData(String basePath, String mergedJson) {
+            this.basePath = basePath;
+            this.mergedJson = mergedJson;
+        }
+    }
+
+    /**
+     * Data for revert preview response.
+     */
+    private static class RevertPreviewData {
+        private final String basePath;
+        private final String filename;
+        private final String previewJson;
+
+        RevertPreviewData(String basePath, String filename, String previewJson) {
+            this.basePath = basePath;
+            this.filename = filename;
+            this.previewJson = previewJson;
+        }
+    }
+
+    /**
+     * Data for revert result response.
+     */
+    private static class RevertResultData {
+        private final String filename;
+        private final boolean success;
+        private final String error;
+
+        RevertResultData(String filename, boolean success, String error) {
+            this.filename = filename;
+            this.success = success;
+            this.error = error;
         }
     }
 

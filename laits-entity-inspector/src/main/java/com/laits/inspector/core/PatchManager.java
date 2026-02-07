@@ -7,6 +7,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.laits.inspector.data.asset.PatchDraft;
+import com.laits.inspector.data.asset.PatchTimeline;
+import com.laits.inspector.data.asset.PatchTimelineEntry;
 
 import com.hypixel.hytale.assetstore.AssetPack;
 import com.hypixel.hytale.server.core.asset.AssetModule;
@@ -624,6 +626,306 @@ public class PatchManager {
         allPatches.sort((a, b) -> Long.compare(b.modifiedTime(), a.modifiedTime()));
 
         return allPatches;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW (requires Hytalor 2.2+)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Build a full timeline showing how an asset is constructed from base + patches.
+     * Uses Hytalor's PatchManager API and JSONUtil.deepMerge() for accurate previews.
+     *
+     * @param assetId        The inspector asset ID (e.g., "NPC/Roles/Creature/Cow")
+     * @param assetCollector The AssetCollector for path resolution
+     * @return PatchTimeline, or null if asset not found or Hytalor unavailable
+     */
+    public PatchTimeline getAssetPatchTimeline(String assetId, AssetCollector assetCollector) {
+        try {
+            // Resolve to Hytalor path
+            String hytalorPath = assetCollector.resolveHytalorBasePath(assetId);
+            if (hytalorPath == null) {
+                LOGGER.atWarning().log("Cannot resolve asset ID to Hytalor path: %s", assetId);
+                return null;
+            }
+
+            // Get Hytalor's PatchManager via reflection (compiled with newer Java version)
+            Object hytalorPm = getHytalorPatchManager();
+            if (hytalorPm == null) {
+                LOGGER.atWarning().log("Hytalor PatchManager not available");
+                return null;
+            }
+
+            // Get the unpatched base asset - returns List<Map.Entry<String, Path>>
+            @SuppressWarnings("unchecked")
+            List<Map.Entry<String, Path>> baseEntries = (List<Map.Entry<String, Path>>)
+                hytalorPm.getClass().getMethod("getBaseAssets", String.class).invoke(hytalorPm, hytalorPath);
+            if (baseEntries == null || baseEntries.isEmpty()) {
+                LOGGER.atWarning().log("Base asset not found for: %s", hytalorPath);
+                return null;
+            }
+
+            // Use the first matching base asset
+            Path baseAssetFile = baseEntries.get(0).getValue();
+            if (!Files.exists(baseAssetFile)) {
+                LOGGER.atWarning().log("Base asset file does not exist: %s", baseAssetFile);
+                return null;
+            }
+
+            JsonObject baseJson = readJsonFromPath(baseAssetFile);
+            if (baseJson == null) {
+                LOGGER.atWarning().log("Failed to parse base asset JSON for: %s", hytalorPath);
+                return null;
+            }
+            String baseAssetJson = GSON.toJson(baseJson);
+
+            // Get ordered patches - returns List<PatchObject> where PatchObject has patch() and path()
+            @SuppressWarnings("unchecked")
+            List<Object> patchObjects = (List<Object>)
+                hytalorPm.getClass().getMethod("getPatches", String.class).invoke(hytalorPm, hytalorPath);
+            if (patchObjects == null) {
+                patchObjects = Collections.emptyList();
+            }
+
+            // Build timeline by iteratively applying each patch
+            List<PatchTimelineEntry> entries = new ArrayList<>();
+            JsonObject currentState = deepCopy(baseJson);
+
+            for (int i = 0; i < patchObjects.size(); i++) {
+                Object patchObj = patchObjects.get(i);
+                // PatchObject is a record with patch() and path() accessors
+                JsonObject patchJson = (JsonObject) patchObj.getClass().getMethod("patch").invoke(patchObj);
+                Path patchFile = (Path) patchObj.getClass().getMethod("path").invoke(patchObj);
+
+                if (patchJson == null) {
+                    LOGGER.atWarning().log("Null patch JSON from: %s", patchFile);
+                    continue;
+                }
+
+                String stateBefore = GSON.toJson(currentState);
+                String patchContent = GSON.toJson(patchJson);
+
+                // Strip metadata before merging
+                JsonObject patchForMerge = deepCopy(patchJson);
+                stripPatchMetadata(patchForMerge);
+
+                // Apply patch via deepMerge (mutates target in-place, so work on a copy)
+                JsonObject stateAfterMerge = deepCopy(currentState);
+                invokeDeepMerge(patchForMerge, stateAfterMerge);
+
+                String stateAfter = GSON.toJson(stateAfterMerge);
+                String sourceMod = determineSourceMod(patchFile);
+                boolean editable = isInOurPatchDirectory(patchFile);
+
+                entries.add(new PatchTimelineEntry(
+                    i,
+                    patchFile.getFileName().toString(),
+                    sourceMod,
+                    patchContent,
+                    stateBefore,
+                    stateAfter,
+                    editable
+                ));
+
+                // Update current state for next iteration
+                currentState = stateAfterMerge;
+            }
+
+            String finalState = GSON.toJson(currentState);
+
+            return new PatchTimeline(hytalorPath, baseAssetJson, entries, finalState);
+
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to build patch timeline for %s: %s", assetId, e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Compute the merged state of an asset after applying all existing patches PLUS a new patch.
+     *
+     * @param assetId        The inspector asset ID
+     * @param patchJson      The new patch JSON to preview
+     * @param assetCollector The AssetCollector for path resolution
+     * @return The merged JSON string, or null on error
+     */
+    public String computeMergePreview(String assetId, String patchJson, AssetCollector assetCollector) {
+        try {
+            PatchTimeline timeline = getAssetPatchTimeline(assetId, assetCollector);
+            if (timeline == null) {
+                return null;
+            }
+
+            // Parse the final state and the new patch
+            JsonObject finalState = JsonParser.parseString(timeline.finalState()).getAsJsonObject();
+            JsonObject stateCopy = deepCopy(finalState);
+
+            JsonObject newPatch = JsonParser.parseString(patchJson).getAsJsonObject();
+            JsonObject patchForMerge = deepCopy(newPatch);
+            stripPatchMetadata(patchForMerge);
+
+            // Apply the new patch on top
+            invokeDeepMerge(patchForMerge, stateCopy);
+
+            return GSON.toJson(stateCopy);
+
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to compute merge preview for %s: %s", assetId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Compute what the asset would look like if a specific patch were removed.
+     *
+     * @param assetId        The inspector asset ID
+     * @param patchFilename  The filename of the patch to exclude
+     * @param assetCollector The AssetCollector for path resolution
+     * @return The reverted JSON string, or null on error
+     */
+    public String computeRevertPreview(String assetId, String patchFilename, AssetCollector assetCollector) {
+        try {
+            String hytalorPath = assetCollector.resolveHytalorBasePath(assetId);
+            if (hytalorPath == null) return null;
+
+            Object hytalorPm = getHytalorPatchManager();
+            if (hytalorPm == null) return null;
+
+            @SuppressWarnings("unchecked")
+            List<Map.Entry<String, Path>> baseEntries = (List<Map.Entry<String, Path>>)
+                hytalorPm.getClass().getMethod("getBaseAssets", String.class).invoke(hytalorPm, hytalorPath);
+            if (baseEntries == null || baseEntries.isEmpty()) return null;
+
+            Path baseAssetFile = baseEntries.get(0).getValue();
+            if (!Files.exists(baseAssetFile)) return null;
+
+            JsonObject baseJson = readJsonFromPath(baseAssetFile);
+            if (baseJson == null) return null;
+
+            @SuppressWarnings("unchecked")
+            List<Object> patchObjects = (List<Object>)
+                hytalorPm.getClass().getMethod("getPatches", String.class).invoke(hytalorPm, hytalorPath);
+            if (patchObjects == null) patchObjects = Collections.emptyList();
+
+            // Apply all patches EXCEPT the one with matching filename
+            JsonObject currentState = deepCopy(baseJson);
+            for (Object patchObj : patchObjects) {
+                Path patchPath = (Path) patchObj.getClass().getMethod("path").invoke(patchObj);
+                if (patchPath.getFileName().toString().equals(patchFilename)) {
+                    continue; // Skip the target patch
+                }
+
+                JsonObject patchJson = (JsonObject) patchObj.getClass().getMethod("patch").invoke(patchObj);
+                if (patchJson == null) continue;
+
+                JsonObject patchForMerge = deepCopy(patchJson);
+                stripPatchMetadata(patchForMerge);
+
+                invokeDeepMerge(patchForMerge, currentState);
+            }
+
+            return GSON.toJson(currentState);
+
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to compute revert preview for %s (excluding %s): %s",
+                assetId, patchFilename, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get Hytalor's PatchManager singleton via reflection.
+     * Hytalor is compiled with a newer Java version, so we must use reflection.
+     */
+    private Object getHytalorPatchManager() {
+        try {
+            Class<?> pmClass = Class.forName("com.hypersonicsharkz.PatchManager");
+            return pmClass.getMethod("get").invoke(null);
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to get Hytalor PatchManager: %s", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Invoke JSONUtil.deepMerge via reflection.
+     */
+    private void invokeDeepMerge(JsonObject source, JsonObject target) {
+        try {
+            Class<?> utilClass = Class.forName("com.hypersonicsharkz.util.JSONUtil");
+            utilClass.getMethod("deepMerge", JsonObject.class, JsonObject.class).invoke(null, source, target);
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to invoke JSONUtil.deepMerge: %s", e.getMessage());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TIMELINE HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Read a JSON file to a JsonObject.
+     */
+    private JsonObject readJsonFromPath(Path path) {
+        try {
+            String content = Files.readString(path, StandardCharsets.UTF_8);
+            return JsonParser.parseString(content).getAsJsonObject();
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to read JSON from %s: %s", path, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Deep copy a JsonObject to prevent mutation.
+     */
+    private JsonObject deepCopy(JsonObject original) {
+        return JsonParser.parseString(original.toString()).getAsJsonObject();
+    }
+
+    /**
+     * Determine which mod/asset pack owns a patch file.
+     */
+    private String determineSourceMod(Path patchFile) {
+        try {
+            List<AssetPack> packs = AssetModule.get().getAssetPacks();
+            String patchAbsolute = patchFile.toAbsolutePath().toString().replace('\\', '/');
+
+            for (AssetPack pack : packs) {
+                String packRoot = pack.getRoot().toAbsolutePath().toString().replace('\\', '/');
+                if (patchAbsolute.startsWith(packRoot)) {
+                    return pack.getName();
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.atWarning().log("Failed to determine source mod for %s: %s", patchFile, e.getMessage());
+        }
+        return "Unknown";
+    }
+
+    /**
+     * Check if a patch file is in our editable patch directory.
+     */
+    private boolean isInOurPatchDirectory(Path patchFile) {
+        if (patchDirectory == null) return false;
+        try {
+            String patchAbsolute = patchFile.toAbsolutePath().toString().replace('\\', '/');
+            String ourDir = patchDirectory.toAbsolutePath().toString().replace('\\', '/');
+            return patchAbsolute.startsWith(ourDir);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Strip patch metadata keys that shouldn't be merged into the asset.
+     */
+    private void stripPatchMetadata(JsonObject patch) {
+        patch.remove("BaseAssetPath");
+        patch.remove("_BaseAssetPath");
+        patch.remove("_priority");
+        patch.remove("$Comment");
     }
 
     // ═══════════════════════════════════════════════════════════════

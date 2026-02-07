@@ -4,6 +4,7 @@ import com.hypixel.hytale.server.npc.NPCPlugin;
 import com.laits.inspector.config.InspectorConfig;
 import com.laits.inspector.data.*;
 import com.laits.inspector.data.asset.*;
+import com.laits.inspector.data.asset.PatchTimeline;
 
 import java.util.List;
 import java.util.Map;
@@ -220,6 +221,53 @@ public interface DataTransportListener {
      */
     default List<HistoryEntry> getSessionHistory() {
         return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATCH TIMELINE & PREVIEW CALLBACKS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Get the full patch timeline for an asset showing base + each patch step.
+     *
+     * @param basePath The asset path (e.g., "NPC/Roles/Creature/Cow")
+     * @return PatchTimeline with base, entries, and final state, or null if unavailable
+     */
+    default PatchTimeline getAssetPatchTimeline(String basePath) {
+        return null;
+    }
+
+    /**
+     * Compute the merged result after applying a patch on top of the current asset state.
+     *
+     * @param basePath  The asset path
+     * @param patchJson The patch JSON to preview
+     * @return Merged JSON string, or null on error
+     */
+    default String computeMergePreview(String basePath, String patchJson) {
+        return null;
+    }
+
+    /**
+     * Compute what the asset would look like if a specific patch were removed.
+     *
+     * @param basePath      The asset path
+     * @param patchFilename The filename of the patch to exclude
+     * @return Reverted JSON string, or null on error
+     */
+    default String computeRevertPreview(String basePath, String patchFilename) {
+        return null;
+    }
+
+    /**
+     * Revert (delete) a patch and refresh assets.
+     *
+     * @param basePath      The asset path
+     * @param patchFilename The filename to delete
+     * @return Error message or null on success
+     */
+    default String revertPatch(String basePath, String patchFilename) {
+        return "Not implemented";
     }
 
     /**

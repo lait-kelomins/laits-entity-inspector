@@ -571,6 +571,89 @@ public class WebSocketTransport implements DataTransport {
             }
 
             // ═══════════════════════════════════════════════════════════════
+            // PATCH TIMELINE & PREVIEW MESSAGES
+            // ═══════════════════════════════════════════════════════════════
+
+            case REQUEST_PATCH_TIMELINE -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for patch timeline request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                String basePath = data.has("basePath") ? data.get("basePath").getAsString() : null;
+                if (basePath == null) {
+                    sendError(session, "Missing basePath");
+                    return;
+                }
+
+                var timeline = listener.getAssetPatchTimeline(basePath);
+                if (timeline != null) {
+                    session.send(OutgoingMessage.patchTimeline(timeline).toJson());
+                } else {
+                    sendError(session, "Failed to get patch timeline for: " + basePath);
+                }
+            }
+
+            case REQUEST_PATCH_MERGE_PREVIEW -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for merge preview request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                String basePath = data.has("basePath") ? data.get("basePath").getAsString() : null;
+                String patchJson = data.has("patchJson") ? data.get("patchJson").getAsString() : null;
+                if (basePath == null || patchJson == null) {
+                    sendError(session, "Missing basePath or patchJson");
+                    return;
+                }
+
+                String mergedJson = listener.computeMergePreview(basePath, patchJson);
+                if (mergedJson != null) {
+                    session.send(OutgoingMessage.patchMergePreview(basePath, mergedJson).toJson());
+                } else {
+                    sendError(session, "Failed to compute merge preview for: " + basePath);
+                }
+            }
+
+            case REQUEST_REVERT_PREVIEW -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for revert preview request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                String basePath = data.has("basePath") ? data.get("basePath").getAsString() : null;
+                String filename = data.has("filename") ? data.get("filename").getAsString() : null;
+                if (basePath == null || filename == null) {
+                    sendError(session, "Missing basePath or filename");
+                    return;
+                }
+
+                String previewJson = listener.computeRevertPreview(basePath, filename);
+                if (previewJson != null) {
+                    session.send(OutgoingMessage.revertPreview(basePath, filename, previewJson).toJson());
+                } else {
+                    sendError(session, "Failed to compute revert preview for: " + basePath);
+                }
+            }
+
+            case REQUEST_REVERT_PATCH -> {
+                if (!json.has("data")) {
+                    sendError(session, "Missing data for revert patch request");
+                    return;
+                }
+                JsonObject data = json.getAsJsonObject("data");
+                String basePath = data.has("basePath") ? data.get("basePath").getAsString() : null;
+                String filename = data.has("filename") ? data.get("filename").getAsString() : null;
+                if (basePath == null || filename == null) {
+                    sendError(session, "Missing basePath or filename");
+                    return;
+                }
+
+                String error = listener.revertPatch(basePath, filename);
+                session.send(OutgoingMessage.revertResult(filename, error == null, error).toJson());
+            }
+
+            // ═══════════════════════════════════════════════════════════════
             // LIVE ENTITY QUERY MESSAGES
             // ═══════════════════════════════════════════════════════════════
 
